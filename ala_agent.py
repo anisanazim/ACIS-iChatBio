@@ -1,294 +1,236 @@
 import os
 import yaml
-from pydantic import BaseModel, field_validator, ValidationError
+from pydantic import BaseModel, Field, field_validator, ValidationError
 from datetime import datetime
 import requests
 from openai import OpenAI
 import json
-from typing import Optional
+from typing import Optional, List, Dict, Any
 from urllib.parse import urlencode
+import instructor
 
-class OccurrenceApi(BaseModel):
-    """Pydantic model for ALA API parameters validation"""
-    scientificname: Optional[str] = None
-    taxonid: Optional[str] = None
-    kingdom: Optional[str] = None
-    phylum: Optional[str] = None
-    class_name: Optional[str] = None
-    order: Optional[str] = None
-    family: Optional[str] = None
-    genus: Optional[str] = None
-    species: Optional[str] = None
-    country: Optional[str] = None
-    state: Optional[str] = None
-    locality: Optional[str] = None
-    year: Optional[str] = None
-    month: Optional[str] = None
-    startdate: Optional[str] = None
-    enddate: Optional[str] = None
-    lat: Optional[float] = None
-    lon: Optional[float] = None
-    radius: Optional[float] = None
-    has_images: Optional[bool] = None
-    has_coordinates: Optional[bool] = None
-    institution_code: Optional[str] = None
-    collection_code: Optional[str] = None
-    basis_of_record: Optional[str] = None
-    limit: Optional[int] = 20
-    offset: Optional[int] = 0
+
+class OccurrenceSearchParams(BaseModel):
+    """Pydantic model for ALA API parameters with Field metadata"""
+    
+    scientificname: Optional[str] = Field(
+        None,
+        description="Full scientific name (e.g., 'Phascolarctos cinereus' for koala)",
+        examples=["Phascolarctos cinereus", "Macropus rufus", "Eucalyptus globulus"]
+    )
+    
+    taxonid: Optional[str] = Field(
+        None,
+        description="Taxon concept ID from ALA taxonomy",
+        examples=["urn:lsid:biodiversity.org.au:afd.taxon:31a9b8b8-4e8f-4343-a15f-2ed24e0bf1ae"]
+    )
+    
+    kingdom: Optional[str] = Field(
+        None,
+        description="Taxonomic kingdom",
+        examples=["Animalia", "Plantae", "Fungi"]
+    )
+    
+    phylum: Optional[str] = Field(
+        None,
+        description="Taxonomic phylum",
+        examples=["Chordata", "Arthropoda", "Magnoliophyta"]
+    )
+    
+    class_name: Optional[str] = Field(
+        None,
+        alias="class",
+        description="Taxonomic class (use 'class_name' in code, mapped to 'class' in API)",
+        examples=["Mammalia", "Aves", "Insecta"]
+    )
+    
+    order: Optional[str] = Field(
+        None,
+        description="Taxonomic order",
+        examples=["Primates", "Carnivora", "Lepidoptera"]
+    )
+    
+    family: Optional[str] = Field(
+        None,
+        description="Taxonomic family",
+        examples=["Phascolarctidae", "Macropodidae", "Myrtaceae"]
+    )
+    
+    genus: Optional[str] = Field(
+        None,
+        description="Taxonomic genus",
+        examples=["Phascolarctos", "Macropus", "Eucalyptus"]
+    )
+    
+    species: Optional[str] = Field(
+        None,
+        description="Species epithet only",
+        examples=["cinereus", "rufus", "globulus"]
+    )
+    
+    country: Optional[str] = Field(
+        None,
+        description="Country name (primarily Australia for ALA)",
+        examples=["Australia"]
+    )
+    
+    state: Optional[str] = Field(
+        None,
+        description="Australian state or territory",
+        examples=["Queensland", "New South Wales", "Victoria", "Tasmania", 
+                 "Western Australia", "South Australia", "Northern Territory", 
+                 "Australian Capital Territory"]
+    )
+    
+    locality: Optional[str] = Field(
+        None,
+        description="Specific locality or place name",
+        examples=["Sydney", "Great Barrier Reef", "Kakadu National Park"]
+    )
+    
+    year: Optional[str] = Field(
+        None,
+        description="Specific year or year range (YYYY or YYYY-YYYY)",
+        examples=["2020", "2018-2022", "2000-2010"]
+    )
+    
+    month: Optional[str] = Field(
+        None,
+        description="Month number (1-12) or range",
+        examples=["6", "1-3", "12"]
+    )
+    
+    startdate: Optional[str] = Field(
+        None,
+        description="Start date in YYYY-MM-DD format",
+        examples=["2020-01-01", "2022-06-15"]
+    )
+    
+    enddate: Optional[str] = Field(
+        None,
+        description="End date in YYYY-MM-DD format",
+        examples=["2023-12-31", "2022-12-31"]
+    )
+    
+    lat: Optional[float] = Field(
+        None,
+        description="Latitude for geographic search (decimal degrees)",
+        examples=[-27.4698, -33.8688, -37.8136],
+        ge=-90,
+        le=90
+    )
+    
+    lon: Optional[float] = Field(
+        None,
+        description="Longitude for geographic search (decimal degrees)",
+        examples=[153.0251, 151.2093, 144.9631],
+        ge=-180,
+        le=180
+    )
+    
+    radius: Optional[float] = Field(
+        None,
+        description="Search radius in kilometers (when using lat/lon)",
+        examples=[10, 50, 100],
+        gt=0
+    )
+    
+    has_images: Optional[bool] = Field(
+        None,
+        description="Filter to records with images"
+    )
+    
+    has_coordinates: Optional[bool] = Field(
+        None,
+        description="Filter to records with GPS coordinates"
+    )
+    
+    institution_code: Optional[str] = Field(
+        None,
+        description="Institution that holds the specimen",
+        examples=["ANIC", "MEL", "QM"]
+    )
+    
+    collection_code: Optional[str] = Field(
+        None,
+        description="Collection within the institution",
+        examples=["Mammals", "Insects", "Herbarium"]
+    )
+    
+    basis_of_record: Optional[str] = Field(
+        None,
+        description="Type of record",
+        examples=["PreservedSpecimen", "HumanObservation", "MachineObservation"]
+    )
+    
+    limit: int = Field(
+        20,
+        description="Maximum number of results to return",
+        ge=1,
+        le=1000
+    )
+    
+    offset: int = Field(
+        0,
+        description="Number of results to skip (for pagination)",
+        ge=0
+    )
 
     @field_validator('startdate', 'enddate')
     @classmethod
     def validate_date_format(cls, value):
         if value is None:
             return value
+        
+        if len(value) == 4 and value.isdigit():
+            return f"{value}-01-01"
+        
         try:
             datetime.strptime(value, "%Y-%m-%d")
             return value
         except ValueError:
-            raise ValueError("Incorrect date format, should be YYYY-MM-DD")
+            raise ValueError("Incorrect date format, should be YYYY-MM-DD or YYYY")
 
-    @field_validator('limit')
+    @field_validator('year')
     @classmethod
-    def validate_limit(cls, value):
-        if value is not None and (value < 1 or value > 1000):
-            raise ValueError("Limit must be between 1 and 1000")
-        return value
+    def validate_year_format(cls, value):
+        if value is None:
+            return value
+        # Allow single year or year range
+        if '-' in value:
+            start_year, end_year = value.split('-')
+            try:
+                int(start_year)
+                int(end_year)
+                return value
+            except ValueError:
+                raise ValueError("Year range should be in format YYYY-YYYY")
+        else:
+            try:
+                int(value)
+                return value
+            except ValueError:
+                raise ValueError("Year should be a 4-digit number")
+
+
+class OccurrenceResponse(BaseModel):
+    """Response model for occurrence search results"""
+    
+    total_records: int = Field(..., description="Total number of matching records")
+    returned_records: int = Field(..., description="Number of records in this response")
+    occurrences: List[Dict[str, Any]] = Field(..., description="List of occurrence records")
+    query_url: str = Field(..., description="URL used for the API query")
+    search_params: Dict[str, Any] = Field(..., description="Parameters used in the search")
+
 
 class ALA:
-    """Atlas of Living Australia API client"""
+    """Improved Atlas of Living Australia API client - stateless design"""
     
     def __init__(self):
-        self.api_key = self.getValue("OPENAI_API_KEY")
-        self.ala_url = self.getValue("ALA_URL", "https://biocache.ala.org.au/ws/occurrences")
-        self.prompt = ""
-        self.payload = ""
-        self.error = ""
-        self.response_data = None
+        self.openai_client = instructor.patch(OpenAI(api_key=self._get_config_value("OPENAI_API_KEY")))
+        self.ala_base_url = self._get_config_value("ALA_URL", "https://biocache.ala.org.au/ws/occurrences")
 
-    def build_prompt(self, user_input):
-        """Build the prompt for OpenAI to extract ALA API parameters"""
-        if user_input is None or len(user_input) == 0:
-            return
-        
-        self.prompt = f"""
-            You are an assistant that generates query parameters for the Atlas of Living Australia (ALA) API's `/occurrence/search` endpoint.
-            Given a natural language request, extract the relevant parameters and return a valid Python dictionary.
-            
-            The natural language input is: {user_input}
-            
-            Supported parameters:
-            - `scientificname`: full scientific name (e.g., "Phascolarctos cinereus" for koala)
-            - `taxonid`: Taxon concept ID from ALA
-            - `kingdom`: taxonomic kingdom (e.g., "Animalia", "Plantae")
-            - `phylum`: taxonomic phylum (e.g., "Chordata", "Arthropoda")
-            - `class_name`: taxonomic class (e.g., "Mammalia", "Aves") - use 'class_name' not 'class'
-            - `order`: taxonomic order (e.g., "Primates", "Carnivora")
-            - `family`: taxonomic family (e.g., "Phascolarctidae", "Macropodidae")
-            - `genus`: taxonomic genus (e.g., "Phascolarctos", "Macropus")
-            - `species`: species name only (e.g., "cinereus", "rufus")
-            - `country`: country name (e.g., "Australia")
-            - `state`: Australian state/territory (e.g., "Queensland", "New South Wales", "Victoria", "Tasmania", "Western Australia", "South Australia", "Northern Territory", "Australian Capital Territory")
-            - `locality`: specific locality or place name
-            - `year`: specific year or year range (e.g., "2020" or "2018-2022")
-            - `month`: month number (1-12) or range
-            - `startdate`: start date in YYYY-MM-DD format
-            - `enddate`: end date in YYYY-MM-DD format
-            - `lat`: latitude for geographic search (decimal degrees)
-            - `lon`: longitude for geographic search (decimal degrees)
-            - `radius`: search radius in kilometers (when using lat/lon)
-            - `has_images`: true if user wants records with images
-            - `has_coordinates`: true if user wants records with GPS coordinates
-            - `institution_code`: institution that holds the specimen
-            - `collection_code`: collection within the institution
-            - `basis_of_record`: type of record (e.g., "PreservedSpecimen", "HumanObservation", "MachineObservation")
-            - `limit`: maximum number of results to return (default 20, max 1000)
-            - `offset`: number of results to skip (for pagination)
-            
-            Important notes:
-            - Australia-focused: Prefer Australian locations and native species
-            - For common names, convert to scientific names when possible
-            - If location is mentioned without specifying Australia, assume Australian context
-            - Use appropriate taxonomic hierarchy
-            - Set reasonable limits (20-100 for general searches)
-            
-            Return only the Python dictionary, no explanations or additional text.
-        """
-
-    def getApiPayload(self):
-        """Get API payload using OpenAI to parse the user prompt"""
-        if len(self.prompt) == 0:
-            return
-        
-        try:
-            client = OpenAI(api_key=self.api_key)
-            response = client.chat.completions.create(
-                model="gpt-3.5-turbo",
-                messages=[{"role": "user", "content": self.prompt}],
-                temperature=0
-            )
-            
-            self.payload = response.choices[0].message.content.strip()
-            
-            # Clean up the response to ensure it's valid JSON
-            if self.payload.startswith("```python"):
-                self.payload = self.payload[9:]
-            if self.payload.startswith("```"):
-                self.payload = self.payload[3:]
-            if self.payload.endswith("```"):
-                self.payload = self.payload[:-3]
-            
-            self.payload = self.payload.strip()
-            
-        except Exception as e:
-            self.error = f"Error getting API payload: {str(e)}"
-            print(self.error)
-
-    def verify_payload(self):
-        """Verify the payload using Pydantic validation"""
-        try:
-            # Parse the JSON string first
-            params_dict = json.loads(self.payload)
-            
-            # Validate using Pydantic model
-            validated_params = OccurrenceApi.model_validate(params_dict)
-            print(validated_params)
-            return True
-            
-        except json.JSONDecodeError as e:
-            self.error = f"JSON decode error: {str(e)}"
-            print(f"Error: {self.error}")
-            print(f"Payload: {self.payload}")
-            return False
-            
-        except ValidationError as e:
-            self.error = f"Validation error: {str(e)}"
-            print(f"Error: {self.error}")
-            return False
-
-    def extract_params_dict(self):
-        """Extract parameters and convert to URL encoding"""
-        if len(self.payload) == 0:
-            return
-        
-        try:
-            data = json.loads(self.payload)
-            
-            # Remove None values and convert special fields for biocache API
-            clean_data = {}
-            for key, value in data.items():
-                if value is not None:
-                    # Handle special field mappings for ALA biocache API
-                    if key == "class_name":
-                        clean_data["class"] = value
-                    elif key == "scientificname":
-                        # Use 'taxa' parameter for scientific name search (based on ALA examples)
-                        clean_data["taxa"] = value
-                    elif key == "has_images":
-                        # Add filter for multimedia records
-                        if value:
-                            clean_data["fq"] = "multimedia:Image"
-                    elif key == "has_coordinates":
-                        # Add filter for georeferenced records
-                        if value:
-                            if "fq" in clean_data:
-                                clean_data["fq"] += " AND geospatial_kosher:true"
-                            else:
-                                clean_data["fq"] = "geospatial_kosher:true"
-                    elif key == "state":
-                        # Add as filter query - try common field names
-                        state_filter = f"state:{value}"
-                        if "fq" in clean_data:
-                            clean_data["fq"] += f" AND {state_filter}"
-                        else:
-                            clean_data["fq"] = state_filter
-                    elif key == "country":
-                        # Add as filter query
-                        country_filter = f"country:{value}"
-                        if "fq" in clean_data:
-                            clean_data["fq"] += f" AND {country_filter}"
-                        else:
-                            clean_data["fq"] = country_filter
-                    else:
-                        clean_data[key] = value
-            
-            # Remove None values after processing
-            clean_data = {k: v for k, v in clean_data.items() if v is not None}
-            
-            self.payload = urlencode(clean_data)
-            
-        except json.JSONDecodeError as e:
-            self.error = f"Error parsing JSON: {str(e)}"
-            print(self.error)
-
-    def query_ala_api(self):
-        """Query the ALA API and return results"""
-        if not self.payload:
-            print("No payload to query with")
-            return None
-            
-        url = f"{self.ala_url}/search?{self.payload}"
-        print(f"Querying ALA API: {url}")
-        
-        try:
-            response = requests.get(url, timeout=30)
-            
-            if response.status_code == 200:
-                self.response_data = response.json()
-                return self.response_data
-            else:
-                error_msg = f"ALA API error {response.status_code}: {response.text}"
-                print(error_msg)
-                self.error = error_msg
-                return None
-                
-        except requests.exceptions.RequestException as e:
-            error_msg = f"Request error: {str(e)}"
-            print(error_msg)
-            self.error = error_msg
-            return None
-
-    def format_results(self):
-        """Format the API results for display"""
-        if not self.response_data:
-            return "No data to format"
-        
-        try:
-            total_records = self.response_data.get('totalRecords', 0)
-            occurrences = self.response_data.get('occurrences', [])
-            
-            if total_records == 0:
-                return "No occurrences found in Atlas of Living Australia for your query."
-            
-            result = f"Found {total_records} total records in Atlas of Living Australia.\n"
-            result += f"Showing {len(occurrences)} results:\n\n"
-            
-            for i, occ in enumerate(occurrences[:5], 1):  # Show first 5
-                name = occ.get('scientificName', 'Unknown species')
-                lat = occ.get('decimalLatitude')
-                lon = occ.get('decimalLongitude')
-                locality = occ.get('locality', '')
-                state = occ.get('stateProvince', '')
-                country = occ.get('country', '')
-                date = occ.get('eventDate', '')
-                
-                location_parts = [part for part in [locality, state, country] if part]
-                location_str = ', '.join(location_parts) if location_parts else 'Location not specified'
-                
-                coord_str = f" ({lat}, {lon})" if lat and lon else ""
-                date_str = f" on {date}" if date else ""
-                
-                result += f"{i}. {name} - {location_str}{coord_str}{date_str}\n"
-            
-            if len(occurrences) < total_records:
-                result += f"\n... and {total_records - len(occurrences)} more records available.\n"
-            
-            return result
-            
-        except Exception as e:
-            return f"Error formatting results: {str(e)}"
-
-    def getValue(self, key, default=None):
+    def _get_config_value(self, key: str, default: Optional[str] = None) -> Optional[str]:
         """Get configuration value from environment or YAML file"""
         value = os.getenv(key)
         if value is None:
@@ -300,26 +242,250 @@ class ALA:
                 value = default
         return value
 
-    def getPayload(self):
-        """Get the current payload"""
-        return self.payload
+    def extract_search_parameters(self, user_query: str) -> OccurrenceSearchParams:
+        """
+        Extract search parameters from natural language using LLM with proper message roles
+        
+        Args:
+            user_query: Natural language query from user
+            
+        Returns:
+            Validated OccurrenceSearchParams object
+        """
+        
+        system_message = """You are an assistant that extracts search parameters for the Atlas of Living Australia (ALA) API.
+        
+        Your task is to analyze natural language queries about Australian biodiversity and extract relevant search parameters.
+        
+        Guidelines:
+        - Focus on Australian context - if location not specified, assume Australia
+        - Convert common names to scientific names when possible (e.g., "koala" → "Phascolarctos cinereus")
+        - Use appropriate taxonomic hierarchy
+        - Set reasonable limits for searches (20-100 for general queries)
+        - For location queries, use Australian states/territories
+        - When users mention "images" or "photos", set has_images=true
+        - When users mention coordinates/GPS/mapping, set has_coordinates=true
+        
+        Return only the extracted parameters as a valid JSON object matching the OccurrenceSearchParams schema."""
+        
+        user_message = f"Extract search parameters from this query: {user_query}"
+        
+        try:
+            params = self.openai_client.chat.completions.create(
+                model="gpt-3.5-turbo",
+                response_model=OccurrenceSearchParams,
+                messages=[
+                    {"role": "system", "content": system_message},
+                    {"role": "user", "content": user_message}
+                ],
+                temperature=0
+            )
+            return params
+            
+        except Exception as e:
+            raise ValueError(f"Failed to extract parameters from query: {str(e)}")
 
-    def getApiKey(self):
-        """Get the API key"""
-        return self.api_key
+    def build_api_url(self, params: OccurrenceSearchParams) -> str:
+        """
+        Build the ALA API URL from search parameters
+        
+        Args:
+            params: Validated search parameters
+            
+        Returns:
+            Complete API URL string
+        """
+        
+        # Convert Pydantic model to dict, excluding None values
+        param_dict = params.model_dump(exclude_none=True, by_alias=True)
+        
+        # Build query parameters for ALA biocache API
+        api_params = {}
+        filter_queries = []
+        
+        for key, value in param_dict.items():
+            if key == "scientificname":
+                # Use simple scientific name search in q parameter
+                api_params["q"] = value
+            elif key == "state":
+                filter_queries.append(f"state:{value}")
+            elif key == "country":
+                filter_queries.append(f"country:{value}")
+            elif key == "has_images" and value:
+                filter_queries.append("multimedia:Image")
+            elif key == "has_coordinates" and value:
+                filter_queries.append("geospatial_kosher:true")
+            elif key == "year":
+                filter_queries.append(f"year:{value}")
+            elif key == "startdate":
+                filter_queries.append(f"occurrence_date:[{value}T00:00:00Z TO *]")
+            elif key == "enddate":
+                filter_queries.append(f"occurrence_date:[* TO {value}T23:59:59Z]")
+            elif key in ["kingdom", "phylum", "class", "order", "family", "genus"]:
+                filter_queries.append(f"{key}:{value}")
+            elif key in ["locality", "institution_code", "collection_code", "basis_of_record"]:
+                filter_queries.append(f"{key}:{value}")
+            else:
+                api_params[key] = value
+        
+        # Combine all filter queries
+        if filter_queries:
+            api_params["fq"] = " AND ".join(filter_queries)
+        
+        # Build final URL
+        query_string = urlencode(api_params)
+        return f"{self.ala_base_url}/search?{query_string}"
 
-    def getError(self):
-        """Get any error messages"""
-        return self.error
+    def execute_search(self, url: str) -> Dict[str, Any]:
+        """
+        Execute the API search request
+        
+        Args:
+            url: Complete API URL to query
+            
+        Returns:
+            Raw API response as dictionary
+        """
+        
+        try:
+            response = requests.get(url, timeout=30)
+            
+            if response.status_code == 200:
+                return response.json()
+            else:
+                raise requests.HTTPError(
+                    f"ALA API error {response.status_code}: {response.text}"
+                )
+                
+        except requests.exceptions.RequestException as e:
+            raise ConnectionError(f"Failed to connect to ALA API: {str(e)}")
+
+    def format_search_results(self, raw_response: Dict[str, Any], 
+                            search_params: OccurrenceSearchParams, 
+                            query_url: str) -> OccurrenceResponse:
+        """
+        Format raw API response into structured result
+        
+        Args:
+            raw_response: Raw response from ALA API
+            search_params: Original search parameters
+            query_url: URL used for the query
+            
+        Returns:
+            Formatted OccurrenceResponse object
+        """
+        
+        total_records = raw_response.get('totalRecords', 0)
+        occurrences = raw_response.get('occurrences', [])
+        
+        return OccurrenceResponse(
+            total_records=total_records,
+            returned_records=len(occurrences),
+            occurrences=occurrences,
+            query_url=query_url,
+            search_params=search_params.model_dump(exclude_none=True)
+        )
+
+    def create_display_summary(self, response: OccurrenceResponse) -> str:
+        """
+        Create user-friendly summary of search results
+        
+        Args:
+            response: Formatted search response
+            
+        Returns:
+            Human-readable summary string
+        """
+        
+        if response.total_records == 0:
+            return "No occurrences found in Atlas of Living Australia for your query."
+        
+        summary_lines = [
+            f"Found {response.total_records} total records in Atlas of Living Australia.",
+            f"Showing {response.returned_records} results:\n"
+        ]
+        
+        for i, occ in enumerate(response.occurrences[:5], 1):
+            name = occ.get('scientificName', 'Unknown species')
+            lat = occ.get('decimalLatitude')
+            lon = occ.get('decimalLongitude')
+            locality = occ.get('locality', '')
+            state = occ.get('stateProvince', '')
+            country = occ.get('country', '')
+            date = occ.get('eventDate', '')
+            
+            location_parts = [part for part in [locality, state, country] if part]
+            location_str = ', '.join(location_parts) if location_parts else 'Location not specified'
+            
+            coord_str = f" ({lat}, {lon})" if lat and lon else ""
+            date_str = f" on {date}" if date else ""
+            
+            summary_lines.append(f"{i}. {name} - {location_str}{coord_str}{date_str}")
+        
+        if response.returned_records < response.total_records:
+            summary_lines.append(f"\n... and {response.total_records - response.returned_records} more records available.")
+        
+        # Add query information
+        summary_lines.extend([
+            f"\nQuery URL: {response.query_url}",
+            f"Search parameters: {json.dumps(response.search_params, indent=2)}"
+        ])
+        
+        return "\n".join(summary_lines)
+
+    def search_occurrences(self, user_query: str) -> str:
+        """
+        Complete workflow: from user query to formatted results
+        
+        Args:
+            user_query: Natural language query from user
+            
+        Returns:
+            Human-readable summary of results
+        """
+        
+        try:
+            # Step 1: Extract parameters using LLM
+            search_params = self.extract_search_parameters(user_query)
+            print(f"✓ Extracted parameters: {search_params}")
+            
+            # Step 2: Build API URL
+            api_url = self.build_api_url(search_params)
+            print(f"✓ API URL: {api_url}")
+            
+            # Step 3: Execute search
+            raw_response = self.execute_search(api_url)
+            print(f"✓ API call successful")
+            
+            # Step 4: Format response
+            formatted_response = self.format_search_results(raw_response, search_params, api_url)
+            print(f"✓ Found {formatted_response.total_records} records")
+            
+            # Step 5: Create display summary
+            display_summary = self.create_display_summary(formatted_response)
+            
+            return display_summary
+            
+        except Exception as e:
+            return f"Error processing query: {str(e)}"
+
+
+# Maintain backward compatibility with original interface
+def main():
+    """Main function for command-line usage"""
+    ala = ALA()
+    user_input = input("Enter Search Query: \n")
+    
+    if not user_input.strip():
+        print("Please enter a valid search query")
+        return
+    
+    result = ala.search_occurrences(user_input)
+    print("\n" + "="*60)
+    print("RESULTS:")
+    print("="*60)
+    print(result)
+
 
 if __name__ == "__main__":
-    ala = ALA()
-    userInput = input("Enter Search Query: \n")
-    ala.build_prompt(user_input=userInput)
-    ala.getApiPayload()
-    ala.verify_payload()
-    print(ala.getPayload())
-    ala.extract_params_dict()
-    result = ala.query_ala_api()
-    if result:
-        print(ala.format_results())
+    main()
