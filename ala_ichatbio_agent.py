@@ -4,7 +4,7 @@ from ichatbio.types import TextMessage, ProcessMessage
 from ichatbio.server import run_agent_server
 
 # Importing existing models and logic from ala_agent.py
-from ala_agent import OccurrenceSearchParams, ALA
+from ala_agent import OccurrenceSearchParams, SpeciesSearchParams, ALA
 
 # 1. Define the agent card (metadata and entrypoints)
 card = AgentCard(
@@ -16,6 +16,11 @@ card = AgentCard(
             id="search",
             description="Search for occurrences in ALA.",
             parameters=OccurrenceSearchParams
+        ),
+        AgentEntrypoint(
+            id="species_search",
+            description="Get species profile info from ALA.",
+            parameters=SpeciesSearchParams
         )
     ]
 )
@@ -25,19 +30,21 @@ class ALASearchAgent(IChatBioAgent):
     def get_agent_card(self):
         return card
 
-    async def run(self, request: str, entrypoint: str, params: OccurrenceSearchParams):
-        if entrypoint != "search":
-            raise ValueError("Unsupported entrypoint")
-        yield ProcessMessage(summary="Searching ALA", description="Running occurrence search")
-
-        # Use your existing ALA logic
+    async def run(self, request: str, entrypoint: str, params):
         ala = ALA()
-        # params is already validated OccurrenceSearchParams
-        api_url = ala.build_api_url(params)
-        raw_response = ala.execute_search(api_url)
-        formatted = ala.format_search_results(raw_response, params, api_url)
-        summary = ala.create_display_summary(formatted)
-        yield TextMessage(summary)
+        if entrypoint == "search":
+            yield ProcessMessage(summary="Searching ALA", description="Running occurrence search")
+            api_url = ala.build_api_url(params)
+            raw_response = ala.execute_search(api_url)
+            formatted = ala.format_search_results(raw_response, params, api_url)
+            summary = ala.create_display_summary(formatted)
+            yield TextMessage(summary)
+        elif entrypoint == "species_search":
+            yield ProcessMessage(summary="Searching ALA", description="Running species search")
+            summary = ala.search_species(request)
+            yield TextMessage(summary)
+        else:
+            raise ValueError("Unsupported entrypoint")
 
 # 3. Run the agent server
 if __name__ == "__main__":
