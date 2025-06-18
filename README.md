@@ -130,7 +130,7 @@ This project includes a robust test suite to ensure reliability.
 The unit tests use mocking to test the agent's logic in isolation, without making any real API calls. They are fast and can be run without an API key.
 
 ```bash
-pytest test.py
+pytest test_mock.py
 ```
 
 
@@ -151,7 +151,7 @@ pytest -s test_live_enhanced.py
 .
 ├── ala_agent.py              # Core logic and command-line interface
 ├── ala_ichatbio_agent.py     # iChatBio server implementation
-├── test.py                   # Unit tests (mocked)
+├── test_mock.py              # Unit tests (mocked)
 └── test_live_enhanced.py     # Integration tests (live APIs)
 ├── env.yaml                  # Local configuration for API keys (not in git)
 └── README.md                 # This file
