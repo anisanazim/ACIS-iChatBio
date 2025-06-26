@@ -1,158 +1,156 @@
-# ALA Search Agent: Natural Language Interface for the Atlas of Living Australia
+# Atlas of Living Australia (ALA) iChatBio Agent
 
-This repository contains a powerful Python agent that allows users to query the [Atlas of Living Australia (ALA)](https://ala.org.au/) using natural language. The agent can be run as a command-line tool or as an iChatBio-compatible server. It leverages a Large Language Model (LLM) to understand user queries and translate them into valid API requests for species occurrences and profiles.
+This project is an AI agent designed to interact with the [Atlas of Living Australia (ALA)](https://ala.org.au/) API. It is built using the `ichatbio-sdk` and provides a conversational interface to search for biodiversity data, including species occurrences and taxonomic profiles.
 
-## Features
-
-* **Natural Language Queries**: Ask for biodiversity data in plain English (e.g., `"show me koalas in New South Wales"`).
-* **Occurrence Search**: Retrieve species occurrence records with support for a wide range of filters, including:
-    * **Taxonomic**: family, genus, scientific name, etc.
-    * **Geographic**: country, state, locality.
-    * **Temporal**: year, date ranges.
-    * **Attribute**: records with images or coordinates.
-* **Species Profile Search**: Get detailed information about specific species.
-* **Robust Fallback**: If the authenticated species API is unavailable, the agent gracefully falls back to the public occurrences API to provide a basic species profile.
-* **Dual Interface**: Can be used directly from the command line (`ala_agent.py`) or run as a persistent agent server (`ala_ichatbio_agent.py`).
-* **Comprehensive Test Suite**: Includes both unit tests (using mocks) and "glass-box" integration tests to verify live end-to-end functionality.
+## Table of Contents
+- [Key Features](#key-features)
+- [Project Structure](#project-structure)
+- [Setup and Installation](#setup-and-installation)
+- [Usage](#usage)
+    - [Running the iChatBio Server](#running-the-ichatbio-server)
+    - [Using the CLI for Testing](#using-the-cli-for-testing)
+- [API Entrypoints](#api-entrypoints)
 
 
-## Prerequisites
+## Key Features
 
-* Python 3.9+
-* An [OpenAI API Key](https://platform.openai.com/api-keys)
-* (Optional) An [ALA API Key](https://api.ala.org.au/) for full access to the authenticated species endpoint.
+This agent exposes several capabilities of the ALA API:
+
+- **Occurrence Search**: Search for species occurrence records with natural language queries.
+- **Single Occurrence Lookup**: Retrieve a specific occurrence record by its UUID.
+- **Faceted Species Search**: Find lists of species using powerful, direct queries.
+- **Single Species Lookup**: Get a detailed profile and the full taxonomic classification for a species by its name.
+- **Field Discovery**: Programmatically fetch a list of all searchable fields in the occurrence database.
 
 
-## Installation
+## Project Structure
 
-1. **Clone the repository:**
+The agent is organized into four distinct files, each with a clear responsibility:
+
+- **`ala_logic.py`**: The core logic layer. This file handles all direct communication with the ALA API. It contains the Pydantic models for structuring API parameters, builds the API request URLs, and uses `cloudscraper` to execute the HTTP requests.
+- **`ala_ichatbio_agent.py`**: The workflow orchestrator. This file defines the step-by-step processes for each of the agent's capabilities (e.g., how to perform a species search). It uses the functions from `ala_logic.py` and translates the outcomes into standardized `iChatBio` messages.
+- **`agent_server.py`**: The production-ready web server. This file uses the `ichatbio-sdk` to wrap the agent in a web server, defines the formal `AgentCard` to advertise its capabilities, and routes incoming requests to the appropriate workflow in `ala_ichatbio_agent.py`.
+- **`run_cli.py`**: A command-line interface for development and testing. This script allows you to run each of the agent's workflows directly from your terminal to verify their functionality in isolation.
+
+
+## Setup and Installation
+
+Follow these steps to set up and run the agent locally.
+
+**1. Clone the Repository**
 
 ```bash
 git clone <your-repository-url>
 cd <your-repository-name>
 ```
 
-2. **Create and activate a virtual environment:**
+**2. Create and Activate a Virtual Environment**
+It's highly recommended to use a virtual environment to manage dependencies.
+
+- On Windows:
 
 ```bash
 python -m venv venv
-source venv/bin/activate  # On Windows, use `venv\Scripts\activate`
+.\venv\Scripts\activate
 ```
 
-3. **Install the required dependencies:**
+- On macOS/Linux:
+
+```bash
+python3 -m venv venv
+source venv/bin/activate
+```
+
+
+**3. Install Dependencies**
+Create a file named `requirements.txt` with the following content:
+
+```
+ichatbio-sdk
+openai
+instructor
+requests
+pyyaml
+cloudscraper
+```
+
+Then, install the dependencies using pip:
 
 ```bash
 pip install -r requirements.txt
 ```
 
-*(Note: If a `requirements.txt` file is not present, you can create one from the imports in `ala_agent.py`, including `pydantic`, `requests`, `openai`, `pyyaml`, `instructor`, and `ichatbio`.)*
-4. **Configure your API keys:**
-Create a file named `env.yaml` in the root of the project directory and add your API keys. This file is included in `.gitignore` and should not be committed to version control.
-
-**`env.yaml` template:**
+**4. Configure Environment Variables**
+The agent requires an OpenAI API key to understand natural language queries. Create a file named `env.yaml` in the root of the project and add your key:
 
 ```yaml
-OPENAI_API_KEY: "your-openai-api-key-here"
-# ALA_API_KEY: "your-ala-jwt-token-here"  # Optional, for authenticated species search
+# env.yaml
+OPENAI_API_KEY: "sk-..."
 ```
-
 
 ## Usage
 
-The agent can be run directly from the command line for immediate queries.
+You can run the agent in two ways: as a full `iChatBio` server or using the command-line tool for testing.
 
-### Occurrence Search
+### Running the iChatBio Server
 
-Use the `occurrences` command to search for species occurrence records.
-
-**Examples:**
-
-* **Filter by common name and location:**
+To run the agent as a network service that the `iChatBio` platform can communicate with, use the `agent_server.py` script.
 
 ```bash
-python ala_agent.py occurrences "show me koalas in New South Wales"
+python agent_server.py
 ```
 
-* **Filter by year and scientific name:**
+You should see output from `Uvicorn` indicating the server is running on `http://0.0.0.0:9999`.
+
+To verify that the agent is running and discoverable, navigate to the following URL in your web browser:
+`http://localhost:9999/.well-known/agent.json`
+
+This will display the agent's `AgentCard` in JSON format.
+
+### Using the CLI for Testing
+
+The `run_cli.py` script allows you to test each agent function directly.
+
+- **Search for occurrences:**
 
 ```bash
-python ala_agent.py occurrences "any platypus sightings in 2023"
+python run_cli.py occurrences "find records of Macropus rufus"
 ```
 
-* **Filter by attribute (records with images):**
+- **Look up a single occurrence by UUID:**
 
 ```bash
-python ala_agent.py occurrences "I need photos of the Laughing Kookaburra"
+python run_cli.py lookup_occurrence <uuid>
 ```
 
-* **Filter by a combination of parameters:**
+- **Search for a list of species:**
 
 ```bash
-python ala_agent.py occurrences "show me preserved specimens of the Tasmanian Devil"
+python run_cli.py search_species "rk_genus:Macropus"
 ```
 
-
-### Species Profile Search
-
-Use the `species` command to get a profile for a specific species. This command will automatically use the fallback mechanism if an ALA API key is not provided.
-
-**Examples:**
-
-* **Lookup by common name:**
+- **Look up a single species and its classification:**
 
 ```bash
-python ala_agent.py species "tell me about the koala"
+python run_cli.py lookup_species "koala"
 ```
 
-* **Lookup by Life Science Identifier (LSID):**
+- **Get all searchable fields:**
 
 ```bash
-python ala_agent.py species "lookup urn:lsid:biodiversity.org.au:afd.taxon:31a9b8b8-4e8f-4343-a15f-2ed24e0bf1ae"
+python run_cli.py index_fields
 ```
 
 
-### Running as an iChatBio Agent Server
+## API Entrypoints
 
-To run the agent as a persistent server compatible with the iChatBio framework, use the `ala_ichatbio_agent.py` script[^1]:
-
-```bash
-python ala_ichatbio_agent.py
-```
-
-The server will start on `http://0.0.0.0:9999` by default.
-
-## Testing
-
-This project includes a robust test suite to ensure reliability.
-
-### Unit Tests
-
-The unit tests use mocking to test the agent's logic in isolation, without making any real API calls. They are fast and can be run without an API key.
-
-```bash
-pytest test_mock.py
-```
+The agent exposes the following entrypoints, as defined in its `AgentCard`:
 
 
-### Integration Tests
-
-The integration tests make **real calls** to the OpenAI and ALA APIs to verify the end-to-end functionality. These tests require a valid `OPENAI_API_KEY` to be set in your `env.yaml` file. Tests that require an authenticated `ALA_API_KEY` will be automatically skipped if the key is not present[^2].
-
-To see the detailed `print` statements during the test run (recommended for debugging), use the `-s` flag:
-
-```bash
-pytest -s test_live_enhanced.py
-```
-
-
-## Project Structure
-
-```
-.
-├── ala_agent.py              # Core logic and command-line interface
-├── ala_ichatbio_agent.py     # iChatBio server implementation
-├── test_mock.py              # Unit tests (mocked)
-└── test_live_enhanced.py     # Integration tests (live APIs)
-├── env.yaml                  # Local configuration for API keys (not in git)
-└── README.md                 # This file
-```
+| Entrypoint ID | Description | Parameters Model |
+| :-- | :-- | :-- |
+| `search_occurrences` | Search for species occurrence records in the ALA. | `OccurrenceSearchParams` |
+| `search_species` | Search for a list of species using faceted filters. | `SpeciesSearchParams` |
+| `lookup_species` | Get a profile for a single species from the ALA by name. | `SpeciesLookupParams` |
+| `lookup_occurrence` | Get a single occurrence record by its UUID. | `OccurrenceLookupParams` |
+| `get_index_fields` | Get a list of all searchable fields. | (None) |
