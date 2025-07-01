@@ -11,12 +11,12 @@ from ala_logic import OccurrenceSearchParams, SpeciesSearchParams, OccurrenceLoo
 card = AgentCard(
     name="Atlas of Living Australia Agent",
     description="Searches the Atlas of Living Australia for biodiversity records and species profiles.",
-    icon="https://www.ala.org.au/wp-content/uploads/2018/06/logo-ALA-1-300x140.png", 
+    icon="https://www.ala.org.au/wp-content/uploads/2018/06/logo-ALA-1-300x140.png",
     entrypoints=[
         AgentEntrypoint(
-            id="search_occurrences",  
+            id="search_occurrences",
             description="Search for species occurrence records in the ALA.",
-            parameters=OccurrenceSearchParams 
+            parameters=OccurrenceSearchParams
         ),
         AgentEntrypoint(
             id="search_species",
@@ -26,7 +26,7 @@ card = AgentCard(
         AgentEntrypoint(
             id="lookup_species",
             description="Get a profile for a single species from the ALA by name.",
-            parameters=SpeciesLookupParams 
+            parameters=SpeciesLookupParams
         ),
         AgentEntrypoint(
             id="lookup_occurrence",
@@ -37,7 +37,7 @@ card = AgentCard(
             id="get_index_fields",
             description="Get a list of all searchable fields in the occurrence database."
         )
-    ]
+    ] 
 )
 
 # Implement  iChatBio agent class

@@ -95,7 +95,7 @@ class ALAiChatBioAgent:
             return
             
     async def run_species_lookup(self, user_query: str) -> AsyncIterator[Message]:
-        """Workflow for looking up a single species profile, now including classification."""
+        """Workflow for looking up a single species profile using the reliable search endpoint."""
         yield ProcessMessage(summary="Extracting Species Parameters", description=f"Processing query: '{user_query}'")
         try:
             params = await self.ala_logic._extract_params(user_query, SpeciesLookupParams)
@@ -103,26 +103,30 @@ class ALAiChatBioAgent:
         except ValueError as e:
             yield ProcessMessage(summary="Error", description=str(e)); return
 
-        api_url = self.ala_logic.build_species_lookup_url(params)
-        yield ProcessMessage(summary="Querying ALA Species", description="Requesting species profile...")
+        search_params = SpeciesSearchParams(q=f"taxon_name:\"{params.name}\"")
+        api_url = self.ala_logic.build_species_search_url(search_params)
+        
+        yield ProcessMessage(summary="Querying ALA Species", description="Requesting species profile via search...")
 
         try:
             loop = asyncio.get_event_loop()
             raw_response = await loop.run_in_executor(None, lambda: self.ala_logic.execute_request(api_url))
             
-            scientific_name = raw_response.get('scientificName', 'Unknown Species')
-            classification_list = raw_response.get('classification', [])
-            classification_path = " -> ".join([rank.get('name', '') for rank in classification_list if isinstance(rank, dict)])
-            
-            response_text = (
-                f"Successfully retrieved profile for {scientific_name}.\n"
-                f"Full Classification: {classification_path}"
-            )
+            results = raw_response.get('searchResults', {}).get('results', [])
+            if not results:
+                yield TextMessage(text=f"Could not find a species profile for '{params.name}'.")
+                return
 
+            # Take the first result as the best match
+            species_data = results[0]
+            scientific_name = species_data.get('name', 'Unknown Species')
+            
+            response_text = f"Successfully found a matching profile for {scientific_name}."
             yield TextMessage(text=response_text)
+
             yield ArtifactMessage(
-                mimetype="application/json", description=f"Raw JSON from ALA Species API for '{scientific_name}'.",
-                uris=[api_url], metadata={"data_source": "ALA Species API", "lsid": raw_response.get('guid')}
+                mimetype="application/json", description=f"Raw JSON from ALA Species Search for '{scientific_name}'.",
+                uris=[api_url], metadata={"data_source": "ALA Species Search", "lsid": species_data.get('guid')}
             )
         except ConnectionError as e:
             yield ProcessMessage(summary="API Error", description=str(e))

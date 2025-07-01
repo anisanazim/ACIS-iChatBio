@@ -59,8 +59,6 @@ class ALA:
         self.openai_client = instructor.patch(AsyncOpenAI(api_key=self._get_config_value("OPENAI_API_KEY")))
         self.ala_api_base_url = self._get_config_value("ALA_API_URL", "https://api.ala.org.au")
         
-        # self.session = requests.Session()
-        
         self.session = cloudscraper.create_scraper()
         self.session.headers.update({
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
@@ -82,7 +80,7 @@ class ALA:
                 model="gpt-4o-mini", response_model=response_model,
                 messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": f"Extract parameters from: {user_query}"}],
                 temperature=0,
-            )
+            ) 
         except Exception as e:
             raise ValueError(f"Failed to extract parameters: {e}")
 
@@ -101,15 +99,16 @@ class ALA:
             elif key == "has_coordinates" and value: fq.append("geospatial_kosher:true")
             else: fq.append(f"{key}:{value}")
         if fq: api_params["fq"] = " AND ".join(fq)
-        return f"{self.ala_api_base_url}/occurrences/search?{urlencode(api_params, quote_via=requests.utils.quote)}"
+        return f"{self.ala_api_base_url}/occurrences/occurrences/search?{urlencode(api_params, quote_via=requests.utils.quote)}"
+    
 
     def build_occurrence_lookup_url(self, params: OccurrenceLookupParams) -> str:
         """Builds the API URL for looking up a single occurrence."""
         return f"{self.ala_api_base_url}/occurrences/{params.uuid}"
-    
+
     def build_index_fields_url(self) -> str:
         """Builds the API URL for getting all indexed fields."""
-        return f"{self.ala_api_base_url}/index/fields"
+        return f"{self.ala_api_base_url}/occurrences/index/fields"
     
     def build_species_lookup_url(self, params: SpeciesLookupParams) -> str:
         """Builds the API URL for looking up a single species."""
@@ -120,7 +119,6 @@ class ALA:
     def build_species_search_url(self, params: SpeciesSearchParams) -> str:
         """Builds the API URL for a faceted species search."""
         param_dict = params.model_dump(exclude_none=True)
-        # The species search endpoint uses 'pageSize' and 'startIndex' instead of 'limit' and 'offset'
         if 'limit' in param_dict:
             param_dict['pageSize'] = param_dict.pop('limit')
         if 'offset' in param_dict:
