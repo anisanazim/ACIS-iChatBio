@@ -1,13 +1,15 @@
-from ichatbio.types import AgentCard, AgentEntrypoint, Message, TextMessage, ProcessMessage, ArtifactMessage
+# agent_server.py
+from pydantic import BaseModel
+# --- FIX: Import only IChatBioAgent from ichatbio.agent ---
 from ichatbio.agent import IChatBioAgent
 from ichatbio.server import run_agent_server
-from pydantic import BaseModel 
-from typing import AsyncIterator 
-from ala_ichatbio_agent import ALAiChatBioAgent
-from ala_logic import OccurrenceSearchParams, SpeciesSearchParams, OccurrenceLookupParams, SpeciesLookupParams
+from ichatbio.types import AgentCard, AgentEntrypoint
 
-# Define the AgentCard (metadata and entrypoints)
-# This tells the iChatBio platform what ALA agent is, and what it can do.
+# Import your existing agent workflow and Pydantic models
+from ala_ichatbio_agent import ALAiChatBioAgent
+from ala_logic import OccurrenceSearchParams, SpeciesSearchParams, OccurrenceLookupParams, SpeciesLookupParams,NoParams,SpatialRegionListParams
+
+# --- AgentCard definition remains the same, but ensure there are no syntax errors ---
 card = AgentCard(
     name="Atlas of Living Australia Agent",
     description="Searches the Atlas of Living Australia for biodiversity records and species profiles.",
@@ -35,50 +37,47 @@ card = AgentCard(
         ),
         AgentEntrypoint(
             id="get_index_fields",
-            description="Get a list of all searchable fields in the occurrence database."
-        )
-    ] 
+            description="Get a list of all searchable fields in the occurrence database.",
+            parameters=NoParams
+        ),
+
+        AgentEntrypoint(
+            id="list_regions",
+            description="List all regions of a given type (e.g., STATE, IBRA, LGA).",
+            parameters=SpatialRegionListParams
+        ),
+    ]
 )
 
-# Implement  iChatBio agent class
-# This class acts as the bridge between the iChatBio SDK and your custom agent logic.
+# --- Implement the iChatBio agent class with the new run signature ---
 class ALAAgent(IChatBioAgent):
     def __init__(self):
-        # Instantiating custom agent logic
         self.workflow_agent = ALAiChatBioAgent()
 
     def get_agent_card(self) -> AgentCard:
         """Returns the agent's metadata card."""
         return card
 
-    # run() receives the `entrypoint_id` and the already-parsed `parameters`.
-    async def run(self, entrypoint_id: str, parameters: BaseModel) -> AsyncIterator[Message]:
-        """
-        Executes the requested agent entrypoint.
-        Yields messages back to the iChatBio platform.
-        """
-        user_query_str = f"User asked for {entrypoint_id} with parameters: {parameters.model_dump_json()}"
-
+    async def run(self, context: "AgentContext", entrypoint_id: str, parameters: BaseModel):
+        """Executes the requested agent entrypoint using the provided context."""
+        
         if entrypoint_id == "search_occurrences":
-            async for message in self.workflow_agent.run_occurrence_search(user_query_str):
-                yield message
+            await self.workflow_agent.run_occurrence_search(context, parameters)
         elif entrypoint_id == "lookup_species":
-            async for message in self.workflow_agent.run_species_lookup(parameters.name):
-                 yield message
+            await self.workflow_agent.run_species_lookup(context, parameters)
         elif entrypoint_id == "search_species":
-            async for message in self.workflow_agent.run_species_search(parameters):
-                 yield message
+            await self.workflow_agent.run_species_search(context, parameters)
         elif entrypoint_id == "lookup_occurrence":
-            async for message in self.workflow_agent.run_occurrence_lookup(parameters):
-                yield message
+            await self.workflow_agent.run_occurrence_lookup(context, parameters)
         elif entrypoint_id == "get_index_fields":
-            async for message in self.workflow_agent.run_get_index_fields():
-                yield message
+            await self.workflow_agent.run_get_index_fields(context)
+        elif entrypoint_id == "list_regions":
+            await self.workflow_agent.run_list_regions(context, parameters)
+
         else:
             raise ValueError(f"Unsupported entrypoint ID: {entrypoint_id}")
 
 if __name__ == "__main__":
     agent = ALAAgent()
     print(f"Starting iChatBio agent server for '{card.name}' at http://localhost:9999")
-    # This function from the SDK starts the actual web server
     run_agent_server(agent, host="0.0.0.0", port=9999)

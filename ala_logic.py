@@ -54,6 +54,14 @@ class SpeciesLookupParams(BaseModel):
     include_children: Optional[bool] = Field(False, description="Include child taxa in response", examples=[True, False])
     include_synonyms: Optional[bool] = Field(False, description="Include taxonomic synonyms", examples=[True, False])
 
+class NoParams(BaseModel):
+    """An empty model for entrypoints that require no parameters."""
+    pass
+
+class SpatialRegionListParams(BaseModel):
+    type: str = Field(..., description="Region type (e.g., STATE, IBRA, LGA, etc.)")
+
+
 class ALA:
     def __init__(self):
         self.openai_client = instructor.patch(AsyncOpenAI(api_key=self._get_config_value("OPENAI_API_KEY")))
@@ -127,6 +135,9 @@ class ALA:
         query = urlencode(param_dict, doseq=True) # doseq=True handles list parameters like fq
         return f"{self.ala_api_base_url}/species/search?{query}"
     
+    def build_spatial_distributions_url(self):
+        return f"{self.ala_api_base_url}/spatial-service/distributions"
+
     def execute_request(self, url: str) -> Dict[str, Any]:
         """Executes a synchronous web request using the session object."""
         try:
