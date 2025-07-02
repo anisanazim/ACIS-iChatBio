@@ -8,7 +8,6 @@ This project is an AI agent designed to interact with the [Atlas of Living Austr
 - [Setup and Installation](#setup-and-installation)
 - [Usage](#usage)
     - [Running the iChatBio Server](#running-the-ichatbio-server)
-    - [Using the CLI for Testing](#using-the-cli-for-testing)
 - [API Entrypoints](#api-entrypoints)
 
 
@@ -30,7 +29,6 @@ The agent is organized into four distinct files, each with a clear responsibilit
 - **`ala_logic.py`**: The core logic layer. This file handles all direct communication with the ALA API. It contains the Pydantic models for structuring API parameters, builds the API request URLs, and uses `cloudscraper` to execute the HTTP requests.
 - **`ala_ichatbio_agent.py`**: The workflow orchestrator. This file defines the step-by-step processes for each of the agent's capabilities (e.g., how to perform a species search). It uses the functions from `ala_logic.py` and translates the outcomes into standardized `iChatBio` messages.
 - **`agent_server.py`**: The production-ready web server. This file uses the `ichatbio-sdk` to wrap the agent in a web server, defines the formal `AgentCard` to advertise its capabilities, and routes incoming requests to the appropriate workflow in `ala_ichatbio_agent.py`.
-- **`run_cli.py`**: A command-line interface for development and testing. This script allows you to run each of the agent's workflows directly from your terminal to verify their functionality in isolation.
 
 
 ## Setup and Installation
