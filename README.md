@@ -105,40 +105,6 @@ To verify that the agent is running and discoverable, navigate to the following 
 
 This will display the agent's `AgentCard` in JSON format.
 
-### Using the CLI for Testing
-
-The `run_cli.py` script allows you to test each agent function directly.
-
-- **Search for occurrences:**
-
-```bash
-python run_cli.py occurrences "find records of Macropus rufus"
-```
-
-- **Look up a single occurrence by UUID:**
-
-```bash
-python run_cli.py lookup_occurrence <uuid>
-```
-
-- **Search for a list of species:**
-
-```bash
-python run_cli.py search_species "rk_genus:Macropus"
-```
-
-- **Look up a single species and its classification:**
-
-```bash
-python run_cli.py lookup_species "koala"
-```
-
-- **Get all searchable fields:**
-
-```bash
-python run_cli.py index_fields
-```
-
 
 ## API Entrypoints
 
