@@ -58,9 +58,21 @@ class NoParams(BaseModel):
     """An empty model for entrypoints that require no parameters."""
     pass
 
-class SpatialRegionListParams(BaseModel):
-    type: str = Field(..., description="Region type (e.g., STATE, IBRA, LGA, etc.)")
+class SpatialDistributionByLsidParams(BaseModel):
+    """Pydantic model for distribution information for a specific LSID """
+    lsid: str  # The Life Science Identifier for the taxon
 
+class SpatialDistributionByIdParams(BaseModel):
+    """Pydantic model for details for a specific expert distribution (e.g., description, area, taxon) by its numeric ID. """
+    id: int  # The numeric ID for the distribution
+
+class SpatialDistributionMapParams(BaseModel):
+    """Pydantic model for distribution map image for a species (after fetching the imageId) """
+    imageId: str  # The image ID for the distribution map
+
+class SpatialFieldByIdParams(BaseModel):
+    """Pydantic model for returning single field by its ID."""
+    id: str  # Field ID
 
 class ALA:
     def __init__(self):
@@ -138,11 +150,35 @@ class ALA:
     def build_spatial_distributions_url(self):
         return f"{self.ala_api_base_url}/spatial-service/distributions"
 
-    def execute_request(self, url: str) -> Dict[str, Any]:
-        """Executes a synchronous web request using the session object."""
+    def build_spatial_distribution_by_lsid_url(self, lsid: str):
+        return f"{self.ala_api_base_url}/spatial-service/distribution/lsids/{lsid}"
+
+    def build_spatial_distribution_by_id_url(self, id: str):
+        return f"{self.ala_api_base_url}/spatial-service/distribution/{id}"
+    
+    def build_spatial_distribution_map_url(self, imageId: str) -> str:
+        return f"{self.ala_api_base_url}/spatial-service/distribution/map/png/{imageId}"
+
+    def build_spatial_fieldsdb_url(self):
+        return f"{self.ala_api_base_url}/spatial-service/fieldsdb"
+    
+    def build_spatial_fields_url(self) -> str:
+         return f"{self.ala_api_base_url}/spatial-service/fields"
+
+    def build_spatial_fields_search_url(self) -> str:
+        return f"{self.ala_api_base_url}/spatial-service/fields/search"
+
+    def build_spatial_field_by_id_url(self, id: str) -> str:
+        return f"{self.ala_api_base_url}/spatial-service/field/{id}"
+
+        
+    def execute_request(self, url: str) -> dict:
         try:
             response = self.session.get(url, timeout=30)
             response.raise_for_status()
-            return response.json()
+            try:
+                return response.json()
+            except ValueError:
+                raise ConnectionError(f"API response was not JSON. Response: {response.text[:200]}")
         except requests.exceptions.RequestException as e:
             raise ConnectionError(f"API request failed: {e}")

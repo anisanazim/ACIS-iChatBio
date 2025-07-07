@@ -117,5 +117,5 @@ The agent exposes the following entrypoints, as defined in its `AgentCard`:
 | `search_species` | Search for a list of species using faceted filters. | `SpeciesSearchParams` |
 | `lookup_species` | Get a profile for a single species from the ALA by name. | `SpeciesLookupParams` |
 | `lookup_occurrence` | Get a single occurrence record by its UUID. | `OccurrenceLookupParams` |
-| `get_index_fields` | Get a list of all searchable fields. | 
-`NoParams`
+| `get_index_fields` | Get a list of all searchable fields. |
+`NoParams` |

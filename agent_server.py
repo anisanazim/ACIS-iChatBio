@@ -1,13 +1,12 @@
 # agent_server.py
 from pydantic import BaseModel
-# --- FIX: Import only IChatBioAgent from ichatbio.agent ---
 from ichatbio.agent import IChatBioAgent
 from ichatbio.server import run_agent_server
 from ichatbio.types import AgentCard, AgentEntrypoint
 
 # Import your existing agent workflow and Pydantic models
 from ala_ichatbio_agent import ALAiChatBioAgent
-from ala_logic import OccurrenceSearchParams, SpeciesSearchParams, OccurrenceLookupParams, SpeciesLookupParams,NoParams,SpatialRegionListParams
+from ala_logic import OccurrenceSearchParams, SpeciesSearchParams, OccurrenceLookupParams, SpeciesLookupParams,NoParams,SpatialDistributionByLsidParams,SpatialDistributionMapParams,SpatialDistributionByIdParams,SpatialFieldByIdParams
 
 # --- AgentCard definition remains the same, but ensure there are no syntax errors ---
 card = AgentCard(
@@ -40,11 +39,30 @@ card = AgentCard(
             description="Get a list of all searchable fields in the occurrence database.",
             parameters=NoParams
         ),
-
         AgentEntrypoint(
-            id="list_regions",
-            description="List all regions of a given type (e.g., STATE, IBRA, LGA).",
-            parameters=SpatialRegionListParams
+            id="list_distributions",
+            description="List all expert distributions available in the ALA spatial service.",
+            parameters=NoParams
+        ),
+        AgentEntrypoint(
+            id="get_distribution_by_lsid",
+            description="Get expert distribution for a taxon by LSID.",
+            parameters=SpatialDistributionByLsidParams
+        ),
+        AgentEntrypoint(
+            id="get_distribution_by_id",
+            description="Get expert distribution by numeric ID.",
+            parameters=SpatialDistributionByIdParams
+        ),
+        AgentEntrypoint(
+            id="get_distribution_map",
+            description="Get PNG image for a distribution map by image ID.",
+            parameters=SpatialDistributionMapParams
+        ),
+        AgentEntrypoint(
+            id="get_field_by_id",
+            description="Get spatial field metadata by field ID.",
+            parameters=SpatialFieldByIdParams
         ),
     ]
 )
@@ -70,9 +88,17 @@ class ALAAgent(IChatBioAgent):
         elif entrypoint_id == "lookup_occurrence":
             await self.workflow_agent.run_occurrence_lookup(context, parameters)
         elif entrypoint_id == "get_index_fields":
-            await self.workflow_agent.run_get_index_fields(context)
-        elif entrypoint_id == "list_regions":
-            await self.workflow_agent.run_list_regions(context, parameters)
+            await self.workflow_agent.run_get_index_fields(context, parameters)
+        elif entrypoint_id == "list_distributions":
+            await self.workflow_agent.run_list_distributions(context, parameters)
+        elif entrypoint_id == "get_distribution_by_lsid":
+            await self.workflow_agent.run_get_distribution_by_lsid(context, parameters)
+        elif entrypoint_id == "get_distribution_by_id":
+            await self.workflow_agent.run_get_distribution_by_id(context, parameters)
+        elif entrypoint_id == "get_distribution_map":
+            await self.workflow_agent.run_get_distribution_map(context, parameters)
+        elif entrypoint_id == "list_fieldsdb":
+            await self.workflow_agent.run_list_fieldsdb(context, parameters)
 
         else:
             raise ValueError(f"Unsupported entrypoint ID: {entrypoint_id}")
