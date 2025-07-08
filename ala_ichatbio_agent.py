@@ -3,7 +3,7 @@ import json
 from typing import Dict, Any
 import requests
 
-from ala_logic import ALA, OccurrenceSearchParams, SpeciesSearchParams, OccurrenceLookupParams, SpeciesLookupParams, NoParams, SpatialDistributionByLsidParams, SpatialDistributionByIdParams, SpatialDistributionMapParams, SpatialFieldByIdParams
+from ala_logic import ALA, OccurrenceSearchParams, SpeciesSearchParams, OccurrenceLookupParams, SpeciesLookupParams, NoParams, SpatialDistributionByLsidParams, SpatialDistributionMapParams
 
 class ALAiChatBioAgent:
     """The iChatBio agent implementation for ALA"""
@@ -199,81 +199,22 @@ class ALAiChatBioAgent:
             except ConnectionError as e:
                 await process.log("Error during API request", data={"error": str(e)})
                 await context.reply(f"Error fetching distribution for LSID '{params.lsid}': {e}")
- 
-    async def run_get_distribution_by_id(self, context, params: SpatialDistributionByIdParams):
-        async with context.begin_process(f"Getting distribution for ID '{params.id}'") as process:
-            api_url = self.ala_logic.build_spatial_distribution_by_id_url(params.id)
-            await process.log(f"Constructed API URL: {api_url}")
-            try:
-                loop = asyncio.get_event_loop()
-                raw_response = await loop.run_in_executor(None, lambda: self.ala_logic.execute_request(api_url))
-                await process.log("Fetched distribution data.")
-                await process.create_artifact(
-                    mimetype="application/json",
-                    description=f"Raw JSON for distribution with ID {params.id}.",
-                    uris=[api_url],
-                    metadata={"distribution_id": params.id}
-                )
-                await context.reply(f"Fetched distribution data for ID '{params.id}'.")
-            except ConnectionError as e:
-                await process.log("Error during API request", data={"error": str(e)})
-                await context.reply(f"Error fetching distribution for ID '{params.id}': {e}")
-   
+
     async def run_get_distribution_map(self, context, params: SpatialDistributionMapParams):
         async with context.begin_process(f"Getting distribution map image for imageId '{params.imageId}'") as process:
             api_url = self.ala_logic.build_spatial_distribution_map_url(params.imageId)
             await process.log(f"Constructed API URL: {api_url}")
             try:
-                # Note: This endpoint returns a PNG image, not JSON!
-                response = self.ala_logic.session.get(api_url, timeout=30)
-                response.raise_for_status()
-                # Save or handle image bytes as needed, or just return the URL as an artifact
+                loop = asyncio.get_event_loop()
+                image_data = await loop.run_in_executor(None, lambda: self.ala_logic.execute_image_request(api_url))
+                
                 await process.create_artifact(
                     mimetype="image/png",
                     description=f"PNG map image for imageId {params.imageId}.",
                     uris=[api_url],
-                    metadata={"image_id": params.imageId}
+                    metadata={"image_id": params.imageId, "size_bytes": len(image_data)}
                 )
                 await context.reply(f"Fetched PNG map image for imageId '{params.imageId}'.")
-            except requests.exceptions.RequestException as e:
+            except ConnectionError as e:
                 await process.log("Error during API request", data={"error": str(e)})
                 await context.reply(f"Error fetching PNG map image for imageId '{params.imageId}': {e}")
-
-    async def run_list_fieldsdb(self, context, params: NoParams):
-        async with context.begin_process("Listing spatial fieldsdb") as process:
-            api_url = self.ala_logic.build_spatial_fieldsdb_url()
-            await process.log(f"Constructed API URL: {api_url}")
-            try:
-                loop = asyncio.get_event_loop()
-                raw_response = await loop.run_in_executor(None, lambda: self.ala_logic.execute_request(api_url))
-                count = len(raw_response)
-                await process.log(f"Found {count} fields in fieldsdb.")
-                await process.create_artifact(
-                    mimetype="application/json",
-                    description=f"Raw JSON for {count} fields in fieldsdb.",
-                    uris=[api_url],
-                    metadata={"fieldsdb_count": count}
-                )
-                await context.reply(f"I found {count} fields in the spatial fieldsdb. See the artifact for details.")
-            except ConnectionError as e:
-                await process.log("Error during API request", data={"error": str(e)})
-                await context.reply(f"Error listing fieldsdb: {e}")
-
-    async def run_get_field_by_id(self, context, params: SpatialFieldByIdParams):
-        async with context.begin_process(f"Getting spatial field for ID '{params.id}'") as process:
-            api_url = self.ala_logic.build_spatial_field_by_id_url(params.id)
-            await process.log(f"Constructed API URL: {api_url}")
-            try:
-                loop = asyncio.get_event_loop()
-                raw_response = await loop.run_in_executor(None, lambda: self.ala_logic.execute_request(api_url))
-                await process.log("Fetched field data.")
-                await process.create_artifact(
-                    mimetype="application/json",
-                    description=f"Raw JSON for field with ID {params.id}.",
-                    uris=[api_url],
-                    metadata={"field_id": params.id}
-                )
-                await context.reply(f"Fetched field data for ID '{params.id}'.")
-            except ConnectionError as e:
-                await process.log("Error during API request", data={"error": str(e)})
-                await context.reply(f"Error fetching field for ID '{params.id}': {e}")

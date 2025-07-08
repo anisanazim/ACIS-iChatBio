@@ -59,20 +59,23 @@ class NoParams(BaseModel):
     pass
 
 class SpatialDistributionByLsidParams(BaseModel):
-    """Pydantic model for distribution information for a specific LSID """
-    lsid: str  # The Life Science Identifier for the taxon
-
-class SpatialDistributionByIdParams(BaseModel):
-    """Pydantic model for details for a specific expert distribution (e.g., description, area, taxon) by its numeric ID. """
-    id: int  # The numeric ID for the distribution
+    """Pydantic model for distribution information for a specific LSID"""
+    lsid: str = Field(..., 
+        description="Life Science Identifier for the taxon in https:// format", 
+        examples=[
+            "https://biodiversity.org.au/afd/taxa/6a01d711-2ac6-4928-bab4-a1de1a58e995",
+            "https://biodiversity.org.au/afd/taxa/ae56080e-4e73-457d-93a1-0be6a1d50f34"
+        ]
+    )    
 
 class SpatialDistributionMapParams(BaseModel):
     """Pydantic model for distribution map image for a species (after fetching the imageId) """
-    imageId: str  # The image ID for the distribution map
-
-class SpatialFieldByIdParams(BaseModel):
-    """Pydantic model for returning single field by its ID."""
-    id: str  # Field ID
+    imageId: str = Field(..., 
+        description="The image ID for the distribution map", 
+        examples=[
+            "30444","31539","30561"
+        ]
+    )
 
 class ALA:
     def __init__(self):
@@ -151,26 +154,21 @@ class ALA:
         return f"{self.ala_api_base_url}/spatial-service/distributions"
 
     def build_spatial_distribution_by_lsid_url(self, lsid: str):
-        return f"{self.ala_api_base_url}/spatial-service/distribution/lsids/{lsid}"
-
-    def build_spatial_distribution_by_id_url(self, id: str):
-        return f"{self.ala_api_base_url}/spatial-service/distribution/{id}"
+        # The API expects the LSID to be URL-encoded
+        encoded_lsid = requests.utils.quote(lsid, safe='')
+        return f"{self.ala_api_base_url}/spatial-service/distribution/lsids/{encoded_lsid}"
     
     def build_spatial_distribution_map_url(self, imageId: str) -> str:
         return f"{self.ala_api_base_url}/spatial-service/distribution/map/png/{imageId}"
 
-    def build_spatial_fieldsdb_url(self):
-        return f"{self.ala_api_base_url}/spatial-service/fieldsdb"
-    
-    def build_spatial_fields_url(self) -> str:
-         return f"{self.ala_api_base_url}/spatial-service/fields"
-
-    def build_spatial_fields_search_url(self) -> str:
-        return f"{self.ala_api_base_url}/spatial-service/fields/search"
-
-    def build_spatial_field_by_id_url(self, id: str) -> str:
-        return f"{self.ala_api_base_url}/spatial-service/field/{id}"
-
+    def execute_image_request(self, url: str) -> bytes:
+        """Execute request for image data (PNG)."""
+        try:
+            response = self.session.get(url, timeout=30)
+            response.raise_for_status()
+            return response.content
+        except requests.exceptions.RequestException as e:
+            raise ConnectionError(f"Image request failed: {e}")    
         
     def execute_request(self, url: str) -> dict:
         try:

@@ -6,7 +6,7 @@ from ichatbio.types import AgentCard, AgentEntrypoint
 
 # Import your existing agent workflow and Pydantic models
 from ala_ichatbio_agent import ALAiChatBioAgent
-from ala_logic import OccurrenceSearchParams, SpeciesSearchParams, OccurrenceLookupParams, SpeciesLookupParams,NoParams,SpatialDistributionByLsidParams,SpatialDistributionMapParams,SpatialDistributionByIdParams,SpatialFieldByIdParams
+from ala_logic import OccurrenceSearchParams, SpeciesSearchParams, OccurrenceLookupParams, SpeciesLookupParams,NoParams,SpatialDistributionByLsidParams,SpatialDistributionMapParams
 
 # --- AgentCard definition remains the same, but ensure there are no syntax errors ---
 card = AgentCard(
@@ -50,19 +50,9 @@ card = AgentCard(
             parameters=SpatialDistributionByLsidParams
         ),
         AgentEntrypoint(
-            id="get_distribution_by_id",
-            description="Get expert distribution by numeric ID.",
-            parameters=SpatialDistributionByIdParams
-        ),
-        AgentEntrypoint(
             id="get_distribution_map",
             description="Get PNG image for a distribution map by image ID.",
             parameters=SpatialDistributionMapParams
-        ),
-        AgentEntrypoint(
-            id="get_field_by_id",
-            description="Get spatial field metadata by field ID.",
-            parameters=SpatialFieldByIdParams
         ),
     ]
 )
@@ -93,13 +83,8 @@ class ALAAgent(IChatBioAgent):
             await self.workflow_agent.run_list_distributions(context, parameters)
         elif entrypoint_id == "get_distribution_by_lsid":
             await self.workflow_agent.run_get_distribution_by_lsid(context, parameters)
-        elif entrypoint_id == "get_distribution_by_id":
-            await self.workflow_agent.run_get_distribution_by_id(context, parameters)
         elif entrypoint_id == "get_distribution_map":
             await self.workflow_agent.run_get_distribution_map(context, parameters)
-        elif entrypoint_id == "list_fieldsdb":
-            await self.workflow_agent.run_list_fieldsdb(context, parameters)
-
         else:
             raise ValueError(f"Unsupported entrypoint ID: {entrypoint_id}")
 
