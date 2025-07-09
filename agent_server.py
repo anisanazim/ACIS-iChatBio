@@ -6,7 +6,13 @@ from ichatbio.types import AgentCard, AgentEntrypoint
 
 # Import your existing agent workflow and Pydantic models
 from ala_ichatbio_agent import ALAiChatBioAgent
-from ala_logic import OccurrenceSearchParams, SpeciesSearchParams, OccurrenceLookupParams, SpeciesLookupParams,NoParams,SpatialDistributionByLsidParams,SpatialDistributionMapParams
+from ala_logic import (
+    OccurrenceSearchParams, OccurrenceLookupParams, OccurrenceFacetsParams, OccurrenceTaxaCountParams,
+    SpeciesGuidLookupParams, SpeciesImageSearchParams, SpeciesBieSearchParams,
+    NoParams, SpatialDistributionByLsidParams, SpatialDistributionMapParams,
+    SpeciesListFilterParams, SpeciesListDetailsParams, 
+    SpeciesListItemsParams, SpeciesListDistinctFieldParams, SpeciesListCommonKeysParams
+)
 
 # --- AgentCard definition remains the same, but ensure there are no syntax errors ---
 card = AgentCard(
@@ -18,16 +24,6 @@ card = AgentCard(
             id="search_occurrences",
             description="Search for species occurrence records in the ALA.",
             parameters=OccurrenceSearchParams
-        ),
-        AgentEntrypoint(
-            id="search_species",
-            description="Search for a list of species using faceted filters.",
-            parameters=SpeciesSearchParams
-        ),
-        AgentEntrypoint(
-            id="lookup_species",
-            description="Get a profile for a single species from the ALA by name.",
-            parameters=SpeciesLookupParams
         ),
         AgentEntrypoint(
             id="lookup_occurrence",
@@ -54,6 +50,56 @@ card = AgentCard(
             description="Get PNG image for a distribution map by image ID.",
             parameters=SpatialDistributionMapParams
         ),
+        AgentEntrypoint(
+            id="get_occurrence_facets",
+            description="Get data breakdowns and insights from occurrence records using facets.",
+            parameters=OccurrenceFacetsParams
+        ),
+        AgentEntrypoint(
+            id="get_occurrence_taxa_count",
+            description="Get occurrence counts for specific taxa by their GUIDs/LSIDs.",
+            parameters=OccurrenceTaxaCountParams
+        ),
+        AgentEntrypoint(
+            id="species_guid_lookup",
+            description="Look up a taxon GUID by name - essential for linking species to occurrence data.",
+            parameters=SpeciesGuidLookupParams
+        ),
+        AgentEntrypoint(
+            id="species_image_search", 
+            description="Search for taxa with images available - visual species information.",
+            parameters=SpeciesImageSearchParams
+        ),
+        AgentEntrypoint(
+            id="species_bie_search",
+            description="Search the Biodiversity Information Explorer (BIE) for species and taxa.",
+            parameters=SpeciesBieSearchParams
+        ),
+        AgentEntrypoint(
+            id="filter_species_lists",
+            description="Filter species lists by scientific names or data resource IDs.",
+            parameters=SpeciesListFilterParams
+        ),
+        AgentEntrypoint(
+            id="get_species_list_details",
+            description="Get detailed information about specific species lists.",
+            parameters=SpeciesListDetailsParams
+        ),
+        AgentEntrypoint(
+            id="get_species_list_items",
+            description="Get species from specific lists with optional name filtering.",
+            parameters=SpeciesListItemsParams
+        ),
+        AgentEntrypoint(
+            id="get_species_list_distinct_fields",
+            description="Get distinct values for a field across all species list items.",
+            parameters=SpeciesListDistinctFieldParams
+        ),
+        AgentEntrypoint(
+            id="get_species_list_common_keys",
+            description="Get common keys (metadata) across multiple species lists.",
+            parameters=SpeciesListCommonKeysParams
+        ),
     ]
 )
 
@@ -73,8 +119,6 @@ class ALAAgent(IChatBioAgent):
             await self.workflow_agent.run_occurrence_search(context, parameters)
         elif entrypoint_id == "lookup_species":
             await self.workflow_agent.run_species_lookup(context, parameters)
-        elif entrypoint_id == "search_species":
-            await self.workflow_agent.run_species_search(context, parameters)
         elif entrypoint_id == "lookup_occurrence":
             await self.workflow_agent.run_occurrence_lookup(context, parameters)
         elif entrypoint_id == "get_index_fields":
@@ -85,6 +129,26 @@ class ALAAgent(IChatBioAgent):
             await self.workflow_agent.run_get_distribution_by_lsid(context, parameters)
         elif entrypoint_id == "get_distribution_map":
             await self.workflow_agent.run_get_distribution_map(context, parameters)
+        elif entrypoint_id == "get_occurrence_facets":
+            await self.workflow_agent.run_get_occurrence_facets(context, parameters)
+        elif entrypoint_id == "get_occurrence_taxa_count":
+            await self.workflow_agent.run_get_occurrence_taxa_count(context, parameters)
+        elif entrypoint_id == "species_guid_lookup":
+            await self.workflow_agent.run_species_guid_lookup(context, parameters)
+        elif entrypoint_id == "species_image_search":
+            await self.workflow_agent.run_species_image_search(context, parameters)
+        elif entrypoint_id == "species_bie_search":
+            await self.workflow_agent.run_species_bie_search(context, parameters)
+        elif entrypoint_id == "filter_species_lists":
+            await self.workflow_agent.run_filter_species_lists(context, parameters)
+        elif entrypoint_id == "get_species_list_details":
+            await self.workflow_agent.run_get_species_list_details(context, parameters)
+        elif entrypoint_id == "get_species_list_items":
+            await self.workflow_agent.run_get_species_list_items(context, parameters)
+        elif entrypoint_id == "get_species_list_distinct_fields":
+            await self.workflow_agent.run_get_species_list_distinct_fields(context, parameters)
+        elif entrypoint_id == "get_species_list_common_keys":
+            await self.workflow_agent.run_get_species_list_common_keys(context, parameters)
         else:
             raise ValueError(f"Unsupported entrypoint ID: {entrypoint_id}")
 
