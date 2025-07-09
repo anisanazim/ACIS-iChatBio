@@ -1,10 +1,11 @@
 # agent_server.py
+from typing_extensions  import override
 from pydantic import BaseModel
 from ichatbio.agent import IChatBioAgent
 from ichatbio.server import run_agent_server
 from ichatbio.types import AgentCard, AgentEntrypoint
 
-# Import your existing agent workflow and Pydantic models
+# Importing the existing agent workflow and Pydantic models
 from ala_ichatbio_agent import ALAiChatBioAgent
 from ala_logic import (
     OccurrenceSearchParams, OccurrenceLookupParams, OccurrenceFacetsParams, OccurrenceTaxaCountParams,
@@ -14,7 +15,7 @@ from ala_logic import (
     SpeciesListItemsParams, SpeciesListDistinctFieldParams, SpeciesListCommonKeysParams
 )
 
-# --- AgentCard definition remains the same, but ensure there are no syntax errors ---
+# --- AgentCard definitions ---
 card = AgentCard(
     name="Atlas of Living Australia Agent",
     description="Searches the Atlas of Living Australia for biodiversity records and species profiles.",
@@ -103,16 +104,18 @@ card = AgentCard(
     ]
 )
 
-# --- Implement the iChatBio agent class with the new run signature ---
+# --- Implement the iChatBio agent ---
 class ALAAgent(IChatBioAgent):
     def __init__(self):
         self.workflow_agent = ALAiChatBioAgent()
 
+    @override
     def get_agent_card(self) -> AgentCard:
         """Returns the agent's metadata card."""
         return card
 
-    async def run(self, context: "AgentContext", entrypoint_id: str, parameters: BaseModel):
+    @override
+    async def run(self, context: "AgentContext", entrypoint_id: str, parameters: BaseModel, request_text: str):
         """Executes the requested agent entrypoint using the provided context."""
         
         if entrypoint_id == "search_occurrences":
