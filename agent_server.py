@@ -1,5 +1,5 @@
 # agent_server.py
-from typing import override
+from typing_extensions import override
 from pydantic import BaseModel
 from ichatbio.agent import IChatBioAgent
 from ichatbio.agent_response import ResponseContext  
