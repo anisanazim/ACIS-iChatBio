@@ -674,7 +674,7 @@ class ALA:
 
     def build_occurrence_lookup_url(self, params: OccurrenceLookupParams) -> str:
         """Builds the API URL for looking up a single occurrence."""
-        base_url = f"{self.ala_api_base_url}/occurrences/{params.recordUuid}"
+        base_url = f"{self.ala_api_base_url}/occurrences/occurrences/{params.recordUuid}"
         
         # Add query parameters if needed
         query_params = {}
@@ -705,7 +705,7 @@ class ALA:
         
         # Build the URL with query string
         query_string = urlencode(api_params, doseq=True, quote_via=requests.utils.quote)
-        return f"{self.ala_api_base_url}/occurrences/facets?{query_string}"
+        return f"{self.ala_api_base_url}/occurrences/occurrences/facets?{query_string}"
 
     def build_index_fields_url(self) -> str:
         """Builds the API URL for getting all indexed fields."""
@@ -779,7 +779,7 @@ class ALA:
         
         # Build the URL with query string
         query_string = urlencode(api_params, doseq=True, quote_via=requests.utils.quote)
-        return f"{self.ala_api_base_url}/occurrences/taxaCount?{query_string}"
+        return f"{self.ala_api_base_url}/occurrences/occurrences/taxaCount?{query_string}"
     
     async def convert_species_to_guids(self, species_names: List[str]) -> Dict[str, str]:
         """
