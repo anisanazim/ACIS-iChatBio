@@ -542,10 +542,10 @@ class SpeciesListCommonKeysParams(BaseModel):
     )
 
 class ALA:
-    def __init__(self):
-        self.openai_client = instructor.patch(AsyncOpenAI(api_key=self._get_config_value("OPENAI_API_KEY")))
+    def _init_(self):
+        self.openai_client = instructor.patch(AsyncOpenAI(api_key=self._get_config_value("OPENAI_API_KEY"),  base_url="https://api.ai.it.ufl.edu"))
         self.ala_api_base_url = self._get_config_value("ALA_API_URL", "https://api.ala.org.au")
-        
+
         self.session = cloudscraper.create_scraper()
         self.session.headers.update({
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
