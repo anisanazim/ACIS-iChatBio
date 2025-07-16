@@ -506,7 +506,7 @@ class SpeciesListItemsParams(BaseModel):
     """Get species within a specific list with advanced filtering"""
     druid: str = Field(...,
         description="The data resource ID or comma separated data resource IDs to identify lists",
-        examples=["dr781", "dr123,dr781,dr332"]
+        examples=["dr781", "dr123","dr781","dr332"]
     )
     q: Optional[str] = Field(None,
         description="Optional query string to search common name, supplied name and scientific name",
@@ -538,7 +538,7 @@ class SpeciesListCommonKeysParams(BaseModel):
     """Get a list of common keys (KVP) across multiple species lists"""
     druid: str = Field(...,
         description="Comma separated data resource IDs to identify lists",
-        examples=["dr781", "dr123,dr781,dr332"]
+        examples=["dr781", "dr123","dr781","dr332"]
     )
 
 class ALA:
