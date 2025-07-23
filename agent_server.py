@@ -9,7 +9,7 @@ from ichatbio.types import AgentCard, AgentEntrypoint
 # Import your existing agent workflow and Pydantic models
 from ala_ichatbio_agent import ALAiChatBioAgent
 from ala_logic import (
-    OccurrenceSearchParams, OccurrenceLookupParams, OccurrenceFacetsParams, OccurrenceTaxaCountParams,
+    OccurrenceSearchParams, OccurrenceLookupParams, OccurrenceFacetsParams, OccurrenceTaxaCountParams, TaxaCountHelper,
     SpeciesGuidLookupParams, SpeciesImageSearchParams, SpeciesBieSearchParams,
     NoParams, SpatialDistributionByLsidParams, SpatialDistributionMapParams,
     SpeciesListFilterParams, SpeciesListDetailsParams, 
@@ -64,6 +64,11 @@ card = AgentCard(
             parameters=OccurrenceTaxaCountParams
         ),
         AgentEntrypoint(
+            id="count_taxa_by_name",
+            description="Count occurrences for species by their common or scientific names, with optional filters.",
+            parameters=TaxaCountHelper  # Use the user-friendly helper model
+        ),
+        AgentEntrypoint(
             id="species_guid_lookup",
             description="Look up a taxon GUID by name - essential for linking species to occurrence data.",
             parameters=SpeciesGuidLookupParams
@@ -102,6 +107,11 @@ card = AgentCard(
             id="get_species_list_common_keys",
             description="Get common keys (metadata) across multiple species lists.",
             parameters=SpeciesListCommonKeysParams
+        ),
+        AgentEntrypoint(
+            id="get_distribution_by_name",
+            description="Get expert distribution for a taxon by its common or scientific name.",
+            parameters=SpeciesGuidLookupParams 
         ),
     ]
 )
@@ -160,6 +170,10 @@ class ALAAgent(IChatBioAgent):
             await self.workflow_agent.run_get_species_list_distinct_fields(context, params)
         elif entrypoint == "get_species_list_common_keys":
             await self.workflow_agent.run_get_species_list_common_keys(context, params)
+        elif entrypoint == "count_taxa_by_name":
+            await self.workflow_agent.run_user_friendly_taxa_count(context, params)
+        elif entrypoint == "get_distribution_by_name":
+            await self.workflow_agent.run_get_distribution_by_name(context, params)
         else:
             # Handle unexpected entrypoints 
             await context.reply(f"Unknown entrypoint '{entrypoint}' received. Request was: '{request}'")

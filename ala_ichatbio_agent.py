@@ -5,7 +5,7 @@ import requests
 
 from ala_logic import (
     ALA, 
-    OccurrenceSearchParams, OccurrenceLookupParams, OccurrenceFacetsParams, OccurrenceTaxaCountParams,
+    OccurrenceSearchParams, OccurrenceLookupParams, OccurrenceFacetsParams, OccurrenceTaxaCountParams, TaxaCountHelper,
     SpeciesGuidLookupParams, SpeciesImageSearchParams, SpeciesBieSearchParams,
     NoParams, SpatialDistributionByLsidParams, SpatialDistributionMapParams,
     SpeciesListFilterParams, SpeciesListDetailsParams, 
@@ -294,6 +294,57 @@ class ALAiChatBioAgent:
                 await process.log("Error during API request", data={"error": str(e)})
                 await context.reply(f"I encountered an error while retrieving taxa occurrence counts: {e}")
 
+    async def run_user_friendly_taxa_count(self, context, params: TaxaCountHelper):
+        """
+        Workflow for the user-friendly taxa count helper.
+        This method calls the high-level orchestrator in the logic layer.
+        """
+        
+        # Build a user-friendly description of the query for logging
+        name_list = (params.species_names or []) + (params.common_names or [])
+        query_description = f"for '{', '.join(name_list)}'"
+        filters = []
+        if params.state:
+            filters.append(f"state: {params.state}")
+        if params.year:
+            filters.append(f"year: {params.year}")
+        if params.basis_of_record:
+            filters.append(f"basis of record: {params.basis_of_record}")
+            
+        if filters:
+            query_description += " with filters: " + ", ".join(filters)
+
+        async with context.begin_process(f"Counting occurrences {query_description}") as process:
+            await process.log("User-friendly taxa count parameters", data=params.model_dump(exclude_defaults=True))
+
+            try:
+                # Call the high-level orchestrator function, not the low-level builders
+                loop = asyncio.get_event_loop()
+                raw_response = await loop.run_in_executor(
+                    None, 
+                    lambda: self.ala_logic.get_taxa_counts(params)
+                )
+                
+                await process.log("Successfully retrieved taxa count data.", data=raw_response)
+                
+                # --- The rest of the logic can be similar to your existing run_get_occurrence_taxa_count ---
+                # You can parse the raw_response to create a user-friendly summary and artifact
+                
+                total_occurrences = sum(int(count) for count in raw_response.values() if isinstance(count, (int, float)))
+                taxa_with_records = sum(1 for count in raw_response.values() if isinstance(count, (int, float)) and count > 0)
+                
+                await process.create_artifact(
+                    mimetype="application/json",
+                    description=f"Taxa occurrence counts - {total_occurrences:,} total occurrences.",
+                    metadata={"total_occurrences": total_occurrences, "taxa_counted": taxa_with_records}
+                )
+
+                await context.reply(f"Found a total of {total_occurrences:,} occurrence records for the requested species with the specified filters.")
+
+            except (ValueError, ConnectionError) as e:
+                await process.log("Error during taxa count workflow", data={"error": str(e)})
+                await context.reply(f"I encountered an error while trying to count the occurrences: {e}")
+
     async def run_species_guid_lookup(self, context, params: SpeciesGuidLookupParams):
         """Workflow for looking up a taxon GUID by name - critical for linking to occurrence data"""
         async with context.begin_process(f"Looking up GUID for '{params.name}'") as process:
@@ -354,78 +405,71 @@ class ALAiChatBioAgent:
             except ConnectionError as e:
                 await process.log("Error during API request", data={"error": str(e)})
                 await context.reply(f"I encountered an error while looking up the GUID for '{params.name}': {e}")
-               
+        
     async def run_species_image_search(self, context, params: SpeciesImageSearchParams):
-            """Workflow for searching taxa with images - visual species information"""
-            async with context.begin_process(f"Searching for images of taxon ID '{params.id}'") as process:
-                await process.log("Image search parameters", data=params.model_dump())
+        """
+        Workflow for searching and fetching the first available image for a species.
+        This function now includes the logic for Step 3 (parsing) and Step 4 (downloading).
+        """
+        async with context.begin_process(f"Fetching image for taxon ID '{params.id}'") as process:
+            # --- STEP 2: Search for image metadata ---
+            await process.log("Image search parameters", data=params.model_dump())
+            
+            # We only need one result to get an image URL
+            params.rows = 1 
+            metadata_url = self.ala_logic.build_species_image_search_url(params)
+            await process.log(f"Constructed metadata URL: {metadata_url}")
 
-                api_url = self.ala_logic.build_species_image_search_url(params)
-                await process.log(f"Constructed API URL: {api_url}")
+            try:
+                loop = asyncio.get_event_loop()
+                image_metadata = await loop.run_in_executor(None, lambda: self.ala_logic.execute_request(metadata_url))
+                await process.log("Successfully retrieved image metadata.", data=image_metadata)
+                
+            except ConnectionError as e:
+                await process.log("Error during metadata request", data={"error": str(e)})
+                await context.reply(f"I encountered an error while searching for image information: {e}")
+                return # Stop execution if metadata search fails
 
-                try:
-                    loop = asyncio.get_event_loop()
-                    raw_response = await loop.run_in_executor(None, lambda: self.ala_logic.execute_request(api_url))
-                    
-                    await process.log("Successfully retrieved image search data.")
-                    
-                    # Extract information from the response - handle different structures
-                    total_records = 0
-                    results_count = 0
-                    facet_results = []
-                    
-                    if isinstance(raw_response, dict):
-                        # Check if it has searchResults structure
-                        if 'searchResults' in raw_response:
-                            search_results = raw_response.get('searchResults', {})
-                            if isinstance(search_results, dict):
-                                total_records = search_results.get('totalRecords', 0)
-                                results = search_results.get('results', [])
-                                results_count = len(results)
-                            else:
-                                # searchResults is a list
-                                results_count = len(search_results)
-                                total_records = results_count
-                        else:
-                            # Direct structure
-                            total_records = raw_response.get('totalRecords', 0)
-                            results = raw_response.get('results', [])
-                            results_count = len(results)
-                        
-                        # Extract facet information if available
-                        facet_results = raw_response.get('facetResults', [])
-                    elif isinstance(raw_response, list):
-                        # Response is directly a list
-                        results_count = len(raw_response)
-                        total_records = results_count
-                    
-                    await process.create_artifact(
-                        mimetype="application/json",
-                        description=f"Image search results for taxon '{params.id}' - {results_count} results from {total_records} total",
-                        uris=[api_url],
-                        metadata={
-                            "data_source": "ALA Species Image Search",
-                            "taxon_id": params.id,
-                            "results_returned": results_count,
-                            "total_records": total_records,
-                            "has_facets": len(facet_results) > 0
-                        }
-                    )
-                    
-                    # Create user-friendly response
-                    if total_records > 0:
-                        summary = f"Found {total_records} taxa with images"
-                        if results_count != total_records:
-                            summary += f" (showing first {results_count})"
-                        summary += f" for the specified taxon."
+            # --- STEP 3: Parse JSON and extract the direct image URL ---
+            image_url = None
+            try:
+                if image_metadata and 'images' in image_metadata and image_metadata['images']:
+                    first_image_record = image_metadata['images'][0]
+                    if 'imageUrl' in first_image_record:
+                        image_url = first_image_record['imageUrl']
+                        await process.log(f"Extracted direct image URL: {image_url}")
                     else:
-                        summary = f"No taxa with images found for the specified taxon ID."
-                    
-                    await context.reply(summary)
+                        raise ValueError("Image metadata record is missing the 'imageUrl' field.")
+                else:
+                    # This handles cases where the search is successful but returns no images
+                    await context.reply(f"I found information about the species, but there are no images available for taxon ID '{params.id}'.")
+                    return
+            except (ValueError, KeyError, IndexError) as e:
+                await process.log("Error parsing image metadata", data={"error": str(e)})
+                await context.reply("I found image information but could not extract a valid download link.")
+                return
 
-                except ConnectionError as e:
-                    await process.log("Error during API request", data={"error": str(e)})
-                    await context.reply(f"I encountered an error while searching for images: {e}")
+            # --- STEP 4: Download the image data from the extracted URL ---
+            try:
+                await process.log(f"Downloading image from: {image_url}")
+                image_data = await loop.run_in_executor(None, lambda: self.ala_logic.execute_image_request(image_url))
+
+                # Create an image artifact, not a JSON one
+                await process.create_artifact(
+                    mimetype="image/jpeg", # Or detect dynamically if possible
+                    description=f"Image for taxon ID '{params.id}'.",
+                    uris=[image_url],
+                    metadata={
+                        "data_source": "ALA Images",
+                        "taxon_id": params.id,
+                        "size_bytes": len(image_data)
+                    }
+                )
+                await context.reply(f"I have successfully fetched an image for taxon ID '{params.id}'.")
+
+            except ConnectionError as e:
+                await process.log("Error during image download", data={"error": str(e)})
+                await context.reply(f"I found a link for an image, but the download failed. The link might be broken. Error: {e}")
 
     async def run_species_bie_search(self, context, params: SpeciesBieSearchParams):
         """Workflow for searching the Biodiversity Information Explorer (BIE)"""
@@ -714,3 +758,41 @@ class ALAiChatBioAgent:
             except ConnectionError as e:
                 await process.log("Error during API request", data={"error": str(e)})
                 await context.reply(f"I encountered an error while retrieving common keys: {e}")
+
+    async def run_get_distribution_by_name(self, context, params: SpeciesGuidLookupParams):
+        """
+        Orchestrates the full workflow to get spatial distribution data for a species by its name.
+        """
+        species_name = params.name
+        async with context.begin_process(f"Getting spatial distribution for '{species_name}'") as process:
+
+            # --- STEP 1: Find the LSID for the species name ---
+            try:
+                await process.log(f"Looking up LSID for '{species_name}'...")
+                loop = asyncio.get_event_loop()
+                
+                guid_url = self.ala_logic.build_species_guid_lookup_url(params)
+                guid_response = await loop.run_in_executor(None, lambda: self.ala_logic.execute_request(guid_url))
+                
+                # Extract the first LSID (guid) from the response
+                if guid_response and isinstance(guid_response, list) and guid_response[0].get('guid'):
+                    lsid = guid_response[0]['guid']
+                    await process.log(f"Found LSID: {lsid}")
+                else:
+                    await context.reply(f"Sorry, I could not find a unique identifier (LSID) for '{species_name}'. Please try a different name.")
+                    return
+            except (ConnectionError, IndexError, KeyError) as e:
+                await process.log("Error during LSID lookup", data={"error": str(e)})
+                await context.reply(f"I encountered an error while trying to find an identifier for '{species_name}': {e}")
+                return
+
+            # --- STEP 2: Get the distribution data using the found LSID ---
+            try:
+                await process.log(f"Fetching distribution data for LSID: {lsid}")
+                distribution_params = SpatialDistributionByLsidParams(lsid=lsid)
+                # Re-use the existing agent method for this step
+                await self.run_get_distribution_by_lsid(context, distribution_params)
+
+            except Exception as e:
+                # The run_get_distribution_by_lsid method already handles its own errors and replies.
+                await process.log("Error during distribution data fetch", data={"error": str(e)})

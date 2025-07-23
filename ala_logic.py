@@ -191,6 +191,16 @@ class OccurrenceSearchParams(BaseModel):
         examples=["PreservedSpecimen", "HumanObservation"]
     )
     
+    # Fields for date range filtering
+    startdate: Optional[str] = Field(None, 
+        description="Start date for a date range filter (YYYY-MM-DD)",
+        examples=["2020-01-01"]
+    )
+    enddate: Optional[str] = Field(None, 
+        description="End date for a date range filter (YYYY-MM-DD)",
+        examples=["2020-12-31"]
+    )
+
     # Legacy pagination 
     limit: Optional[int] = Field(None, 
         description="Maximum results (converted to pageSize)", 
@@ -329,6 +339,11 @@ class OccurrenceFacetsParams(BaseModel):
         description="Well Known Text for the spatial search",
         examples=["POLYGON((140 -40, 150 -40, 150 -30, 140 -30, 140 -40))"]
     )
+    # User-friendly filter parameters
+    state: Optional[str] = Field(None, description="Filter by Australian state")
+    year: Optional[str] = Field(None, description="Filter by year")
+    has_images: Optional[bool] = Field(None, description="Filter for records with images")
+    basis_of_record: Optional[str] = Field(None, description="Filter by the basis of record")
 
 class SpeciesGuidLookupParams(BaseModel):
     """Pydantic model for GET /guid/{name} - Look up a taxon guid by name"""
@@ -571,8 +586,68 @@ class ALA:
         except Exception as e:
             raise ValueError(f"Failed to extract parameters: {e}")
     
+    async def convert_species_to_guids(self, names: List[str]) -> Dict[str, str]:
+        """
+        Helper method to convert a list of species names to their corresponding GUIDs.
+        Returns a dictionary mapping each name to its found GUID.
+        """
+        guid_map = {}
+        for name in names:
+            try:
+                # Build the URL for the species GUID lookup
+                params = SpeciesGuidLookupParams(name=name)
+                url = self.build_species_guid_lookup_url(params)
+                
+                # Execute the request
+                result = self.execute_request(url) # Assuming this can be async or you adapt it
+                
+                # The GUID is often in the 'taxonConceptID' field
+                if result and result.get('taxonConceptID'):
+                    guid_map[name] = result['taxonConceptID']
+                else:
+                    print(f"Warning: No GUID found for '{name}' in API response.")
+            except Exception as e:
+                # Handle cases where a name lookup fails entirely
+                print(f"Warning: Could not find GUID for '{name}'. Skipping. Error: {e}")
+                
+        return guid_map
+
+    async def get_taxa_counts(self, params: TaxaCountHelper) -> dict:
+        """
+        Orchestrates getting taxa counts from user-friendly names.
+        """
+        names_to_lookup = (params.species_names or []) + (params.common_names or [])
+        if not names_to_lookup:
+            raise ValueError("You must provide at least one species or common name.")
+
+        # Step 1: Call the worker function to convert names to GUIDs
+        guid_map = await self.convert_species_to_guids(names_to_lookup)
+        
+        all_guids = list(guid_map.values())
+        if not all_guids:
+            raise ValueError("Could not resolve any of the provided names to a valid GUID.")
+
+        # Step 2: Construct filter queries (fq)
+        fq_filters = []
+        if params.state:
+            fq_filters.append(f"state:{params.state}")
+        if params.year:
+            fq_filters.append(f"year:{params.year}")
+        if params.basis_of_record:
+            fq_filters.append(f"basis_of_record:{params.basis_of_record}")
+
+        # Step 3: Build the final parameters for the API call
+        taxa_count_params = OccurrenceTaxaCountParams(
+            guids="\n".join(all_guids),
+            fq=fq_filters if fq_filters else None
+        )
+        
+        # Step 4: Build the URL and execute the request
+        url = self.build_occurrence_taxa_count_url(taxa_count_params)
+        return self.execute_request(url) # Execute and return the final count
+ 
     def build_occurrence_url(self, params: OccurrenceSearchParams) -> str:
-        """Build occurrence search URL"""
+        """Build occurrence search URL with improved safety and correctness."""
         param_dict = params.model_dump(exclude_none=True, by_alias=True)
         api_params = {}
         fq_filters = []
@@ -587,90 +662,62 @@ class ALA:
         for param in direct_api_params:
             if param in param_dict:
                 api_params[param] = param_dict.pop(param)
-        
+                
         # Handle pagination - prefer real API params, fall back to legacy
-        if 'pageSize' in param_dict:
-            api_params['pageSize'] = param_dict.pop('pageSize')
-        elif 'limit' in param_dict:
-            api_params['pageSize'] = param_dict.pop('limit')
-        else:
-            api_params['pageSize'] = 20  # default
-        
-        if 'start' in param_dict:
-            api_params['start'] = param_dict.pop('start')
-        elif 'offset' in param_dict:
-            api_params['start'] = param_dict.pop('offset')
-        else:
-            api_params['start'] = 0  # default
-        
+        api_params['pageSize'] = param_dict.pop('pageSize', param_dict.pop('limit', 20))
+        api_params['start'] = param_dict.pop('start', param_dict.pop('offset', 0))
+
         # Handle existing fq parameter
         if 'fq' in param_dict:
-            existing_fq = param_dict.pop('fq')
-            if isinstance(existing_fq, list):
-                fq_filters.extend(existing_fq)
-            else:
-                fq_filters.append(existing_fq)
+            fq_filters.extend(param_dict.pop('fq'))
         
         # Handle main query - prefer explicit q, fall back to scientificname
-        if 'q' in param_dict:
-            api_params['q'] = param_dict.pop('q')
-        elif 'scientificname' in param_dict:
+        if 'q' not in api_params and 'scientificname' in param_dict:
             api_params['q'] = f'scientificName:"{param_dict.pop("scientificname")}"'
-        
+        elif 'scientificname' in param_dict:
+            # If both q and scientificname are present, pop scientificname to avoid it being processed later
+            param_dict.pop("scientificname")
+
         # Convert user-friendly parameters to fq filters
-        taxonomic_fields = ['kingdom', 'phylum', 'class', 'order', 'family', 'genus', 'species']
-        for field in taxonomic_fields:
-            if field in param_dict:
-                value = param_dict.pop(field)
+        fq_mapping = {
+            'kingdom': 'kingdom', 'phylum': 'phylum', 'class': 'class', 
+            'order': 'order', 'family': 'family', 'genus': 'genus', 
+            'species': 'species', 'state': 'state', 'year': 'year', 
+            'basis_of_record': 'basis_of_record'
+        }
+        
+        for user_param, api_field in fq_mapping.items():
+            if user_param in param_dict:
+                value = param_dict.pop(user_param)
                 if isinstance(value, str) and " " in value:
-                    fq_filters.append(f'{field}:"{value}"')
+                    fq_filters.append(f'{api_field}:"{value}"')
                 else:
-                    fq_filters.append(f'{field}:{value}')
-        
-        # Handle geographic filters
-        if 'state' in param_dict:
-            state = param_dict.pop('state')
-            if " " in state:
-                fq_filters.append(f'state:"{state}"')
-            else:
-                fq_filters.append(f'state:{state}')
-        
-        # Handle temporal filters
-        if 'year' in param_dict:
-            fq_filters.append(f'year:{param_dict.pop("year")}')
-        
-        # Handle date ranges (your existing logic)
-        if 'startdate' in param_dict or 'enddate' in param_dict:
-            start = param_dict.pop('startdate', None)
-            end = param_dict.pop('enddate', None)
-            start_str = start + "T00:00:00Z" if start else "*"
-            end_str = end + "T23:59:59Z" if end else "NOW"
+                    fq_filters.append(f'{api_field}:{value}')
+                    
+        # Handle date ranges
+        start_date = param_dict.pop('startdate', None)
+        end_date = param_dict.pop('enddate', None)
+        if start_date or end_date:
+            start_str = f"{start_date}T00:00:00Z" if start_date else "*"
+            end_str = f"{end_date}T23:59:59Z" if end_date else "NOW"
             fq_filters.append(f"occurrence_date:[{start_str} TO {end_str}]")
-        
+            
         # Handle boolean filters
-        if param_dict.get('has_images'):
+        if param_dict.pop('has_images', None):
             fq_filters.append("multimedia:Image")
-            param_dict.pop('has_images')
         
-        if param_dict.get('has_coordinates'):
+        if param_dict.pop('has_coordinates', None):
             fq_filters.append("geospatial_kosher:true")
-            param_dict.pop('has_coordinates')
         
-        # Handle basis of record
-        if 'basis_of_record' in param_dict:
-            fq_filters.append(f'basis_of_record:{param_dict.pop("basis_of_record")}')
-        
-        for key, value in param_dict.items():
-            if value is not None:
-                if isinstance(value, str) and " " in value:
-                    fq_filters.append(f'{key}:"{value}"')
-                else:
-                    fq_filters.append(f'{key}:{value}')
-        
+        # Add combined filters to the final parameter dictionary
         if fq_filters:
-            api_params['fq'] = fq_filters if len(fq_filters) > 1 else fq_filters[0]
-        
-        return f"{self.ala_api_base_url}/occurrences/occurrences/search?{urlencode(api_params, doseq=True, quote_via=requests.utils.quote)}"
+            api_params['fq'] = fq_filters
+            
+        base_url = self.ala_api_base_url
+        endpoint_path = "/occurrences/occurrences/search"
+        query_string = urlencode(api_params, doseq=True, quote_via=requests.utils.quote)
+
+        return f"{base_url}{endpoint_path}?{query_string}"
 
     def build_occurrence_lookup_url(self, params: OccurrenceLookupParams) -> str:
         """Builds the API URL for looking up a single occurrence."""
@@ -686,14 +733,16 @@ class ALA:
             return f"{base_url}?{query_string}"
         else:
             return base_url
-
+        
     def build_occurrence_facets_url(self, params: OccurrenceFacetsParams) -> str:
         """Build URL for GET /occurrences/facets"""
         param_dict = params.model_dump(exclude_none=True, by_alias=True)
         api_params = {}
-        # Handle direct API parameters
+        fq_filters = []
+
+        # Handle direct API parameters first
         direct_params = [
-            'q', 'fq', 'fl', 'facets', 'flimit', 'fsort', 'foffset', 'fprefix',
+            'q', 'fl', 'facets', 'flimit', 'fsort', 'foffset', 'fprefix',
             'start', 'pageSize', 'sort', 'dir', 'includeMultivalues', 'qc', 'facet',
             'qualityProfile', 'disableAllQualityFilters', 'disableQualityFilter',
             'radius', 'lat', 'lon', 'wkt'
@@ -701,9 +750,30 @@ class ALA:
         
         for param in direct_params:
             if param in param_dict:
-                api_params[param] = param_dict[param]
+                api_params[param] = param_dict.pop(param)
         
-        # Build the URL with query string
+        # Handle any pre-formatted fq filters
+        if 'fq' in param_dict:
+            fq_filters.extend(param_dict.pop('fq'))
+
+        # Convert user-friendly parameters to fq filters
+        if param_dict.pop('has_images', None):
+            fq_filters.append("multimedia:Image") 
+            
+        if 'state' in param_dict:
+            fq_filters.append(f"state:{param_dict.pop('state')}")
+            
+        if 'year' in param_dict:
+            fq_filters.append(f"year:{param_dict.pop('year')}")
+        
+        if 'basis_of_record' in param_dict:
+            fq_filters.append(f"basis_of_record:{param_dict.pop('basis_of_record')}")
+
+        # Add the final list of filters to the API parameters
+        if fq_filters:
+            api_params['fq'] = fq_filters
+        
+        # Build the final URL
         query_string = urlencode(api_params, doseq=True, quote_via=requests.utils.quote)
         return f"{self.ala_api_base_url}/occurrences/occurrences/facets?{query_string}"
 
@@ -781,20 +851,6 @@ class ALA:
         query_string = urlencode(api_params, doseq=True, quote_via=requests.utils.quote)
         return f"{self.ala_api_base_url}/occurrences/occurrences/taxaCount?{query_string}"
     
-    async def convert_species_to_guids(self, species_names: List[str]) -> Dict[str, str]:
-        """
-        Helper method to convert species names to GUIDs using species search.
-        This would use your existing species search functionality.
-        """
-        # TODO: Implement this to automatically convert species names to GUIDs
-        # For now, users need to provide GUIDs directly
-        guid_map = {}
-        for name in species_names:
-            # This would do a species search to find the GUID for each name
-            # guid_map[name] = found_guid
-            pass
-        return guid_map
-
     def build_species_list_filter_url(self, params: SpeciesListFilterParams) -> tuple:
         """Build URL and request body for POST /ws/specieslist/filter"""
         request_body = {}
@@ -808,7 +864,7 @@ class ALA:
         if not request_body:
             raise ValueError("At least one filter (scientific_names or dr_ids) must be provided")
         
-        url = f"{self.ala_api_base_url}/specieslist/ws/specieslist/filter"
+        url = f"{self.ala_api_base_url}/specieslist/ws/speciesList/filter"
         return url, request_body
 
     def build_species_list_details_url(self, params: SpeciesListDetailsParams) -> str:
@@ -819,10 +875,10 @@ class ALA:
             "offset": params.offset
         }
         query_string = urlencode(query_params)
-        return f"{self.ala_api_base_url}/specieslist/ws/specieslist/{params.druid}?{query_string}"
+        return f"{self.ala_api_base_url}/specieslist/ws/speciesList/{params.druid}?{query_string}"
 
     def build_species_list_items_url(self, params: SpeciesListItemsParams) -> str:
-        """Build URL for GET /ws/specieslistItems/{druid}"""
+        """Build URL for GET /ws/speciesListItems/{druid}"""
         query_params = {
             "nonulls": str(params.nonulls).lower(),
             "sort": params.sort,
@@ -835,11 +891,11 @@ class ALA:
             query_params["q"] = params.q
         
         query_string = urlencode(query_params)
-        return f"{self.ala_api_base_url}/specieslist/ws/specieslistItems/{params.druid}?{query_string}"
+        return f"{self.ala_api_base_url}/specieslist/ws/speciesListItems/{params.druid}?{query_string}"
 
     def build_species_list_distinct_field_url(self, params: SpeciesListDistinctFieldParams) -> str:
-        """Build URL for GET /ws/specieslistItems/distinct/{field}"""
-        return f"{self.ala_api_base_url}/specieslist/ws/specieslistItems/distinct/{params.field}"
+        """Build URL for GET /ws/speciesListItems/distinct/{field}"""
+        return f"{self.ala_api_base_url}/specieslist/ws/speciesListItems/distinct/{params.field}"
 
     def build_species_list_common_keys_url(self, params: SpeciesListCommonKeysParams) -> str:
         """Build URL for GET /ws/listCommonKeys"""
@@ -850,7 +906,7 @@ class ALA:
     def execute_image_request(self, url: str) -> bytes:
         """Execute request for image data (PNG)."""
         try:
-            response = self.session.get(url, timeout=30)
+            response = self.session.get(url, timeout=60)
             response.raise_for_status()
             return response.content
         except requests.exceptions.RequestException as e:
@@ -858,7 +914,7 @@ class ALA:
         
     def execute_request(self, url: str) -> dict:
         try:
-            response = self.session.get(url, timeout=30)
+            response = self.session.get(url, timeout=60)
             response.raise_for_status()
             try:
                 return response.json()
@@ -870,7 +926,7 @@ class ALA:
     def execute_post_request(self, url: str, data: dict) -> dict:
         """Execute POST request with JSON data."""
         try:
-            response = self.session.post(url, json=data, timeout=30)
+            response = self.session.post(url, json=data, timeout=60)
             response.raise_for_status()
             try:
                 return response.json()
