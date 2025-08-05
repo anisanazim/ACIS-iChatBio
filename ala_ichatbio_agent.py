@@ -187,6 +187,11 @@ class ALAiChatBioAgent:
                 
                 if isinstance(raw_response, dict):
                     facet_results = raw_response.get('facetResults', [])
+                elif isinstance(raw_response, list):
+                    facet_results = raw_response
+                else:
+                    facet_results = []
+                    
                     for facet in facet_results:
                         field_name = facet.get('fieldName', 'Unknown')
                         field_result = facet.get('fieldResult', [])

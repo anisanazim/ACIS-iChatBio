@@ -641,7 +641,7 @@ class ALA:
             guids="\n".join(all_guids),
             fq=fq_filters if fq_filters else None
         )
-        
+        print("DEBUG fq param:", fq_filters, type(fq_filters))
         # Step 4: Build the URL and execute the request
         url = self.build_occurrence_taxa_count_url(taxa_count_params)
         return self.execute_request(url) # Execute and return the final count
@@ -650,8 +650,17 @@ class ALA:
         """Build occurrence search URL with improved safety and correctness."""
         param_dict = params.model_dump(exclude_none=True, by_alias=True)
         api_params = {}
-        fq_filters = []
-        
+        fq_filters = [] 
+
+        # NEW: Remove q if spatial search params are present
+        if (
+            param_dict.get("lat") is not None
+            and param_dict.get("lon") is not None
+            and param_dict.get("radius") is not None
+            and param_dict.get("q") is not None
+        ):
+            param_dict.pop("q")
+
         # Handle real API parameters directly
         direct_api_params = [
             'q', 'fl', 'facets', 'flimit', 'fsort', 'foffset', 'fprefix',
@@ -689,11 +698,33 @@ class ALA:
         for user_param, api_field in fq_mapping.items():
             if user_param in param_dict:
                 value = param_dict.pop(user_param)
-                if isinstance(value, str) and " " in value:
-                    fq_filters.append(f'{api_field}:"{value}"')
+                if user_param == "year":
+                    # Handle ranges in value
+                    # Example 1: year='2001,2025' -> year:[2001 TO 2025]
+                    if isinstance(value, str) and "," in value:
+                        years = [v.strip() for v in value.split(",")]
+                        if len(years) == 2:
+                            fq_filters.append(f'{api_field}:[{years[0]} TO {years[1]}]')
+                        else:
+                            fq_filters.extend([f'{api_field}:{y}' for y in years if y])
+                    # Example 2: year='2001+' means after 2000 forever
+                    elif isinstance(value, str) and value.endswith("+"):
+                        year_start = value[:-1]
+                        fq_filters.append(f'{api_field}:[{year_start} TO *]')
+                    # Example 3: year='2001' (just one year)
+                    elif isinstance(value, str):
+                        fq_filters.append(f'{api_field}:{value}')
+                    # Example 4: year is a number or list
+                    elif isinstance(value, (list, tuple)) and len(value) == 2:
+                        fq_filters.append(f'{api_field}:[{value[0]} TO {value[1]}]')
+                    else:
+                        fq_filters.append(f'{api_field}:{value}')
                 else:
-                    fq_filters.append(f'{api_field}:{value}')
-                    
+                    if isinstance(value, str) and " " in value:
+                        fq_filters.append(f'{api_field}:"{value}"')
+                    else:
+                        fq_filters.append(f'{api_field}:{value}')
+                   
         # Handle date ranges
         start_date = param_dict.pop('startdate', None)
         end_date = param_dict.pop('enddate', None)
@@ -740,6 +771,16 @@ class ALA:
         api_params = {}
         fq_filters = []
 
+        # --- NEW: Remove q if spatial search params are present ---
+        if (
+            param_dict.get("lat") is not None
+            and param_dict.get("lon") is not None
+            and param_dict.get("radius") is not None
+            and param_dict.get("q") is not None
+        ):
+            param_dict.pop("q")
+        # ---------------------------------------------------------
+
         # Handle direct API parameters first
         direct_params = [
             'q', 'fl', 'facets', 'flimit', 'fsort', 'foffset', 'fprefix',
@@ -756,16 +797,31 @@ class ALA:
         if 'fq' in param_dict:
             fq_filters.extend(param_dict.pop('fq'))
 
-        # Convert user-friendly parameters to fq filters
+        # Convert user-friendly parameters to fq filters (with year special handling)
         if param_dict.pop('has_images', None):
-            fq_filters.append("multimedia:Image") 
-            
+            fq_filters.append("multimedia:Image")
+        
         if 'state' in param_dict:
             fq_filters.append(f"state:{param_dict.pop('state')}")
-            
+
         if 'year' in param_dict:
-            fq_filters.append(f"year:{param_dict.pop('year')}")
-        
+            value = param_dict.pop('year')
+            if isinstance(value, str) and ',' in value:
+                years = [v.strip() for v in value.split(",")]
+                if len(years) == 2:
+                    fq_filters.append(f'year:[{years[0]} TO {years[1]}]')
+                else:
+                    fq_filters.extend([f'year:{y}' for y in years if y])
+            elif isinstance(value, str) and value.endswith("+"):
+                year_start = value[:-1]
+                fq_filters.append(f'year:[{year_start} TO *]')
+            elif isinstance(value, str):
+                fq_filters.append(f'year:{value}')
+            elif isinstance(value, (list, tuple)) and len(value) == 2:
+                fq_filters.append(f'year:[{value[0]} TO {value[1]}]')
+            else:
+                fq_filters.append(f'year:{value}')
+
         if 'basis_of_record' in param_dict:
             fq_filters.append(f"basis_of_record:{param_dict.pop('basis_of_record')}")
 
