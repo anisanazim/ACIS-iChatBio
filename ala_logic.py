@@ -590,26 +590,34 @@ class ALA:
         """
         Helper method to convert a list of species names to their corresponding GUIDs.
         Returns a dictionary mapping each name to its found GUID.
+        Handles both single and multiple (ambiguous) match API responses.
         """
         guid_map = {}
         for name in names:
             try:
-                # Build the URL for the species GUID lookup
                 params = SpeciesGuidLookupParams(name=name)
                 url = self.build_species_guid_lookup_url(params)
-                
-                # Execute the request
-                result = self.execute_request(url) # Assuming this can be async or you adapt it
-                
-                # The GUID is often in the 'taxonConceptID' field
-                if result and result.get('taxonConceptID'):
-                    guid_map[name] = result['taxonConceptID']
+                result = self.execute_request(url)
+
+                guid = None
+
+                if isinstance(result, list):
+                    # Find the first entry with taxonConceptID or guid
+                    for entry in result:
+                        if isinstance(entry, dict):
+                            guid = entry.get('taxonConceptID') or entry.get('guid')
+                            if guid:
+                                break
+                elif isinstance(result, dict):
+                    guid = result.get('taxonConceptID') or result.get('guid')
+
+                if guid:
+                    guid_map[name] = guid
                 else:
-                    print(f"Warning: No GUID found for '{name}' in API response.")
+                    print(f"Warning: No GUID found for '{name}' in API response: {result}")
             except Exception as e:
-                # Handle cases where a name lookup fails entirely
+                # Handle cases where a name lookup fails
                 print(f"Warning: Could not find GUID for '{name}'. Skipping. Error: {e}")
-                
         return guid_map
 
     async def get_taxa_counts(self, params: TaxaCountHelper) -> dict:
