@@ -191,7 +191,7 @@ class ALAiChatBioAgent:
                     facet_results = raw_response
                 else:
                     facet_results = []
-                    
+
                     for facet in facet_results:
                         field_name = facet.get('fieldName', 'Unknown')
                         field_result = facet.get('fieldResult', [])
@@ -324,16 +324,10 @@ class ALAiChatBioAgent:
 
             try:
                 # Call the high-level orchestrator function, not the low-level builders
-                loop = asyncio.get_event_loop()
-                raw_response = await loop.run_in_executor(
-                    None, 
-                    lambda: self.ala_logic.get_taxa_counts(params)
-                )
+                raw_response = await self.ala_logic.get_taxa_counts(params)
                 
                 await process.log("Successfully retrieved taxa count data.", data=raw_response)
                 
-                # --- The rest of the logic can be similar to your existing run_get_occurrence_taxa_count ---
-                # You can parse the raw_response to create a user-friendly summary and artifact
                 
                 total_occurrences = sum(int(count) for count in raw_response.values() if isinstance(count, (int, float)))
                 taxa_with_records = sum(1 for count in raw_response.values() if isinstance(count, (int, float)) and count > 0)
