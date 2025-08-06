@@ -860,16 +860,21 @@ class ALA:
         encoded_id = requests.utils.quote(params.id, safe='')
         
         # Build query parameters
-        query_params = {
-            "start": params.start,
-            "rows": params.rows
-        }
-        
+        query_params = {}
+
+        if params.start is not None:
+            query_params["start"] = params.start
+        if params.rows is not None:
+            query_params["rows"] = params.rows
         if params.qc:
             query_params["qc"] = params.qc
-        
-        query_string = urlencode(query_params)
-        return f"{self.ala_api_base_url}/species/imageSearch/{encoded_id}?{query_string}"
+
+        if query_params:
+            query_string = urlencode(query_params)
+            return f"{self.ala_api_base_url}/species/imageSearch/{encoded_id}?{query_string}"
+        else:
+            return f"{self.ala_api_base_url}/species/imageSearch/{encoded_id}"
+
 
     def build_species_bie_search_url(self, params: SpeciesBieSearchParams) -> str:
         """Build URL for GET /search"""
