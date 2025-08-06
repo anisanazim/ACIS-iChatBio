@@ -408,7 +408,6 @@ class ALAiChatBioAgent:
             await process.log("Image search parameters", data=params.model_dump())
             
             # We only need one result to get an image URL
-            params.rows = 1 
             metadata_url = self.ala_logic.build_species_image_search_url(params)
             await process.log(f"Constructed metadata URL: {metadata_url}")
 
