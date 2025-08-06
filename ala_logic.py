@@ -362,12 +362,14 @@ class SpeciesImageSearchParams(BaseModel):
         ]
     )
     
-    start: Optional[int] = Field(1,
-        description="The records offset, to enable paging",
-        ge=1, examples=[1, 10, 20]
+    start: Optional[int] = Field(
+    None,
+    description="The records offset, to enable paging",
+    ge=1, examples=[1, 10, 20]
     )
-    
-    rows: Optional[int] = Field(5,
+
+    rows: Optional[int] = Field(
+        None,
         description="The number of records to return, to enable paging",
         ge=1, le=100, examples=[5, 10, 20]
     )
