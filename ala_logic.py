@@ -593,11 +593,8 @@ class ALA:
                 params = SpeciesGuidLookupParams(name=name)
                 url = self.build_species_guid_lookup_url(params)
                 result = self.execute_request(url)
-
                 guid = None
-
                 if isinstance(result, list):
-                    # Try all possible keys in priority order for each entry
                     for entry in result:
                         if isinstance(entry, dict):
                             guid = (
@@ -615,7 +612,11 @@ class ALA:
                         result.get('acceptedIdentifier') or
                         result.get('identifier')
                     )
-                if guid:
+                # --- NEW: Normalize ALA taxon GUIDs to LSID/URN format ---
+                if guid and guid.startswith("https://biodiversity.org.au/afd/taxa/"):
+                    lsid = "urn:lsid:biodiversity.org.au:afd.taxon:" + guid.rsplit("/", 1)[-1]
+                    guid_map[name] = lsid
+                elif guid:
                     guid_map[name] = guid
                 else:
                     print(f"Warning: No GUID found for '{name}' in API response: {result}")
@@ -655,7 +656,7 @@ class ALA:
         print("DEBUG fq param:", fq_filters, type(fq_filters))
         # Step 4: Build the URL and execute the request
         url = self.build_occurrence_taxa_count_url(taxa_count_params)
-        return self.execute_request(url) # Execute and return the final count
+        return self.execute_request(url), url
  
     def build_occurrence_url(self, params: OccurrenceSearchParams) -> str:
         """Build occurrence search URL with improved safety and correctness."""

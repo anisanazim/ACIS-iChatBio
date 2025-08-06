@@ -304,8 +304,6 @@ class ALAiChatBioAgent:
         Workflow for the user-friendly taxa count helper.
         This method calls the high-level orchestrator in the logic layer.
         """
-        
-        # Build a user-friendly description of the query for logging
         name_list = (params.species_names or []) + (params.common_names or [])
         query_description = f"for '{', '.join(name_list)}'"
         filters = []
@@ -315,7 +313,6 @@ class ALAiChatBioAgent:
             filters.append(f"year: {params.year}")
         if params.basis_of_record:
             filters.append(f"basis of record: {params.basis_of_record}")
-            
         if filters:
             query_description += " with filters: " + ", ".join(filters)
 
@@ -323,21 +320,17 @@ class ALAiChatBioAgent:
             await process.log("User-friendly taxa count parameters", data=params.model_dump(exclude_defaults=True))
 
             try:
-                # Call the high-level orchestrator function, not the low-level builders
-                raw_response = await self.ala_logic.get_taxa_counts(params)
-                
+                # Now get both the data and URL from the logic
+                raw_response, api_url = await self.ala_logic.get_taxa_counts(params)
                 await process.log("Successfully retrieved taxa count data.", data=raw_response)
-                
-                
                 total_occurrences = sum(int(count) for count in raw_response.values() if isinstance(count, (int, float)))
                 taxa_with_records = sum(1 for count in raw_response.values() if isinstance(count, (int, float)) and count > 0)
-                
                 await process.create_artifact(
                     mimetype="application/json",
                     description=f"Taxa occurrence counts - {total_occurrences:,} total occurrences.",
+                    uris=[api_url],
                     metadata={"total_occurrences": total_occurrences, "taxa_counted": taxa_with_records}
                 )
-
                 await context.reply(f"Found a total of {total_occurrences:,} occurrence records for the requested species with the specified filters.")
 
             except (ValueError, ConnectionError) as e:
