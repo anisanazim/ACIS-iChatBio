@@ -422,15 +422,14 @@ class ALAiChatBioAgent:
                 return # Stop execution if metadata search fails
 
             # --- STEP 3: Parse JSON and extract the direct image URL ---
+            # --- STEP 3: Parse JSON and extract the direct image URL ---
+
             image_url = None
             try:
-                if image_metadata and 'images' in image_metadata and image_metadata['images']:
-                    first_image_record = image_metadata['images'][0]
-                    if 'imageUrl' in first_image_record:
-                        image_url = first_image_record['imageUrl']
-                        await process.log(f"Extracted direct image URL: {image_url}")
-                    else:
-                        raise ValueError("Image metadata record is missing the 'imageUrl' field.")
+                results = image_metadata.get('searchResults', {}).get('results', [])
+                if results and 'imageUrl' in results[0]:
+                    image_url = results[0]['imageUrl']
+                    await process.log(f"Extracted direct image URL: {image_url}")
                 else:
                     # This handles cases where the search is successful but returns no images
                     await context.reply(f"I found information about the species, but there are no images available for taxon ID '{params.id}'.")
@@ -439,28 +438,6 @@ class ALAiChatBioAgent:
                 await process.log("Error parsing image metadata", data={"error": str(e)})
                 await context.reply("I found image information but could not extract a valid download link.")
                 return
-
-            # --- STEP 4: Download the image data from the extracted URL ---
-            try:
-                await process.log(f"Downloading image from: {image_url}")
-                image_data = await loop.run_in_executor(None, lambda: self.ala_logic.execute_image_request(image_url))
-
-                # Create an image artifact, not a JSON one
-                await process.create_artifact(
-                    mimetype="image/jpeg", # Or detect dynamically if possible
-                    description=f"Image for taxon ID '{params.id}'.",
-                    uris=[image_url],
-                    metadata={
-                        "data_source": "ALA Images",
-                        "taxon_id": params.id,
-                        "size_bytes": len(image_data)
-                    }
-                )
-                await context.reply(f"I have successfully fetched an image for taxon ID '{params.id}'.")
-
-            except ConnectionError as e:
-                await process.log("Error during image download", data={"error": str(e)})
-                await context.reply(f"I found a link for an image, but the download failed. The link might be broken. Error: {e}")
 
     async def run_species_bie_search(self, context, params: SpeciesBieSearchParams):
         """Workflow for searching the Biodiversity Information Explorer (BIE)"""
