@@ -26,92 +26,92 @@ card = AgentCard(
         AgentEntrypoint(
             id="search_occurrences",
             description="Search for species occurrence records in the ALA.",
-            parameters=None
+            parameters=OccurrenceSearchParams
         ),
         AgentEntrypoint(
             id="lookup_occurrence",
             description="Get a single occurrence record by its UUID.",
-            parameters=None
+            parameters=OccurrenceLookupParams
         ),
         AgentEntrypoint(
             id="get_index_fields",
             description="Get a list of all searchable fields in the occurrence database.",
-            parameters=None
+            parameters=NoParams
         ),
         AgentEntrypoint(
             id="list_distributions",
             description="List all expert distributions available in the ALA spatial service.",
-            parameters=None
+            parameters=NoParams
         ),
         AgentEntrypoint(
             id="get_distribution_by_lsid",
             description="Get expert distribution for a taxon by LSID.",
-            parameters=None
+            parameters=SpatialDistributionByLsidParams
         ),
         AgentEntrypoint(
             id="get_distribution_map",
             description="Get PNG image for a distribution map by image ID.",
-            parameters=None
+            parameters=SpatialDistributionMapParams
         ),
         AgentEntrypoint(
             id="get_occurrence_facets",
             description="Get data breakdowns and insights from occurrence records using facets.",
-            parameters=None
+            parameters=OccurrenceFacetsParams
         ),
         AgentEntrypoint(
             id="get_occurrence_taxa_count",
             description="Get occurrence counts for specific taxa by their GUIDs/LSIDs.",
-            parameters=None
+            parameters=OccurrenceTaxaCountParams
         ),
         AgentEntrypoint(
             id="count_taxa_by_name",
             description="Count occurrences for species by their common or scientific names, with optional filters.",
-            parameters=None  # Use the user-friendly helper model
+            parameters=TaxaCountHelper  # Use the user-friendly helper model
         ),
         AgentEntrypoint(
             id="species_guid_lookup",
             description="Look up a taxon GUID by name - essential for linking species to occurrence data.",
-            parameters=None
+            parameters=SpeciesGuidLookupParams
         ),
         AgentEntrypoint(
             id="species_image_search", 
             description="Search for taxa with images available - visual species information.",
-            parameters=None
+            parameters=SpeciesImageSearchParams
         ),
         AgentEntrypoint(
             id="species_bie_search",
             description="Search the Biodiversity Information Explorer (BIE) for species and taxa.",
-            parameters=None
+            parameters=SpeciesBieSearchParams
         ),
         AgentEntrypoint(
             id="filter_species_lists",
             description="Filter species lists by scientific names or data resource IDs.",
-            parameters=None
+            parameters=SpeciesListFilterParams
         ),
         AgentEntrypoint(
             id="get_species_list_details",
             description="Get detailed information about specific species lists.",
-            parameters=None
+            parameters=SpeciesListDetailsParams
         ),
         AgentEntrypoint(
             id="get_species_list_items",
             description="Get species from specific lists with optional name filtering.",
-            parameters=None
+            parameters=SpeciesListItemsParams
         ),
         AgentEntrypoint(
             id="get_species_list_distinct_fields",
             description="Get distinct values for a field across all species list items.",
-            parameters=None
+            parameters=SpeciesListDistinctFieldParams
         ),
         AgentEntrypoint(
             id="get_species_list_common_keys",
             description="Get common keys (metadata) across multiple species lists.",
-            parameters=None
+            parameters=SpeciesListCommonKeysParams
         ),
         AgentEntrypoint(
             id="get_distribution_by_name",
             description="Get expert distribution for a taxon by its common or scientific name.",
-            parameters=None 
+            parameters=SpeciesGuidLookupParams 
         ),
     ]
 )
@@ -134,45 +134,46 @@ class ALAAgent(IChatBioAgent):
         print(f"=== DEBUG INFO ===")
         print(f"request: {request}")
         print(f"entrypoint: {entrypoint}")
+        print(f"params type: {type(params)}")
         print(f"params: {params}")
         print(f"==================")
         
         if entrypoint == "search_occurrences":
-            await self.workflow_agent.run_occurrence_search(context, request)
+            await self.workflow_agent.run_occurrence_search(context, params)
         elif entrypoint == "lookup_occurrence":
-            await self.workflow_agent.run_occurrence_lookup(context, request)
+            await self.workflow_agent.run_occurrence_lookup(context, params)
         elif entrypoint == "get_index_fields":
-            await self.workflow_agent.run_get_index_fields(context, request)
+            await self.workflow_agent.run_get_index_fields(context, params)
         elif entrypoint == "list_distributions":
-            await self.workflow_agent.run_list_distributions(context, request)
+            await self.workflow_agent.run_list_distributions(context, params)
         elif entrypoint == "get_distribution_by_lsid":
-            await self.workflow_agent.run_get_distribution_by_lsid(context, request)
+            await self.workflow_agent.run_get_distribution_by_lsid(context, params)
         elif entrypoint == "get_distribution_map":
-            await self.workflow_agent.run_get_distribution_map(context, request)
+            await self.workflow_agent.run_get_distribution_map(context, params)
         elif entrypoint == "get_occurrence_facets":
-            await self.workflow_agent.run_get_occurrence_facets(context, request)
+            await self.workflow_agent.run_get_occurrence_facets(context, params)
         elif entrypoint == "get_occurrence_taxa_count":
-            await self.workflow_agent.run_get_occurrence_taxa_count(context, request)
+            await self.workflow_agent.run_get_occurrence_taxa_count(context, params)
         elif entrypoint == "species_guid_lookup":
-            await self.workflow_agent.run_species_guid_lookup(context, request)
+            await self.workflow_agent.run_species_guid_lookup(context, params)
         elif entrypoint == "species_image_search":
-            await self.workflow_agent.run_species_image_search(context, request)
+            await self.workflow_agent.run_species_image_search(context, params)
         elif entrypoint == "species_bie_search":
-            await self.workflow_agent.run_species_bie_search(context, request)
+            await self.workflow_agent.run_species_bie_search(context, params)
         elif entrypoint == "filter_species_lists":
-            await self.workflow_agent.run_filter_species_lists(context, request)
+            await self.workflow_agent.run_filter_species_lists(context, params)
         elif entrypoint == "get_species_list_details":
-            await self.workflow_agent.run_get_species_list_details(context, request)
+            await self.workflow_agent.run_get_species_list_details(context, params)
         elif entrypoint == "get_species_list_items":
-            await self.workflow_agent.run_get_species_list_items(context, request)
+            await self.workflow_agent.run_get_species_list_items(context, params)
         elif entrypoint == "get_species_list_distinct_fields":
-            await self.workflow_agent.run_get_species_list_distinct_fields(context, request)
+            await self.workflow_agent.run_get_species_list_distinct_fields(context, params)
         elif entrypoint == "get_species_list_common_keys":
-            await self.workflow_agent.run_get_species_list_common_keys(context, request)
+            await self.workflow_agent.run_get_species_list_common_keys(context, params)
         elif entrypoint == "count_taxa_by_name":
-            await self.workflow_agent.run_user_friendly_taxa_count(context, request)
+            await self.workflow_agent.run_user_friendly_taxa_count(context, params)
         elif entrypoint == "get_distribution_by_name":
-            await self.workflow_agent.run_get_distribution_by_name(context, request)
+            await self.workflow_agent.run_get_distribution_by_name(context, params)
         else:
             # Handle unexpected entrypoints 
             await context.reply(f"Unknown entrypoint '{entrypoint}' received. Request was: '{request}'")

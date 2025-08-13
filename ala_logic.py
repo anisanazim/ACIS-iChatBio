@@ -559,7 +559,7 @@ class SpeciesListCommonKeysParams(BaseModel):
     )
 
 class ALA:
-    def __init__(self): 
+    def __init__(self): # Corrected to double underscores
         self.openai_client = instructor.patch(AsyncOpenAI(api_key=self._get_config_value("OPENAI_API_KEY"), base_url="https://api.ai.it.ufl.edu"))
         self.ala_api_base_url = self._get_config_value("ALA_API_URL", "https://api.ala.org.au")
         
@@ -578,33 +578,13 @@ class ALA:
         return value if value is not None else default
 
     async def _extract_params(self, user_query: str, response_model):
-        system_prompt = """
-        You are an assistant that extracts search parameters for the Atlas of Living Australia (ALA) API.
-        
-        Based on the user's request, extract the appropriate parameters for the requested search type.
-        
-        Guidelines:
-        - For species names: Use scientific names when possible, common names are also acceptable
-        - For locations: Australian states should be full names (e.g., "Queensland", not "QLD")
-        - For years: Accept ranges, single years, or relative terms
-        - For filters: Convert natural language to appropriate filter queries
-        
-        Examples:
-        - "Find koalas in Queensland from 2020" -> q: "koala", fq: ["state:Queensland", "year:2020"]
-        - "Show me images of Eucalyptus globulus" -> id should be the GUID for this species
-        - "Search for mammals with photos" -> q: "mammals", fq: ["imageAvailable:true"]
-        """
-        
+        system_prompt = "You are an assistant that extracts search parameters for the Atlas of Living Australia (ALA) API..."
         try:
             return await self.openai_client.chat.completions.create(
-                model="gpt-4o-mini", 
-                response_model=response_model,
-                messages=[
-                    {"role": "system", "content": system_prompt}, 
-                    {"role": "user", "content": f"Extract parameters from: {user_query}"}
-                ],
+                model="gpt-4o-mini", response_model=response_model,
+                messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": f"Extract parameters from: {user_query}"}],
                 temperature=0,
-            )
+            ) 
         except Exception as e:
             raise ValueError(f"Failed to extract parameters: {e}")
     
@@ -634,7 +614,7 @@ class ALA:
                         result.get('acceptedIdentifier') or
                         result.get('identifier')
                     )
-                # Normalize ALA taxon GUIDs to LSID/URN format ---
+                # --- NEW: Normalize ALA taxon GUIDs to LSID/URN format ---
                 if guid and guid.startswith("https://biodiversity.org.au/afd/taxa/"):
                     lsid = "urn:lsid:biodiversity.org.au:afd.taxon:" + guid.rsplit("/", 1)[-1]
                     guid_map[name] = lsid
@@ -1007,7 +987,7 @@ class ALA:
         except requests.exceptions.RequestException as e:
             raise ConnectionError(f"Image request failed: {e}")    
         
-    def execute_get_request(self, url: str) -> dict:
+    def execute_request(self, url: str) -> dict:
         try:
             response = self.session.get(url, timeout=60)
             response.raise_for_status()
