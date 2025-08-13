@@ -559,7 +559,7 @@ class SpeciesListCommonKeysParams(BaseModel):
     )
 
 class ALA:
-    def __init__(self): # Corrected to double underscores
+    def __init__(self): 
         self.openai_client = instructor.patch(AsyncOpenAI(api_key=self._get_config_value("OPENAI_API_KEY"), base_url="https://api.ai.it.ufl.edu"))
         self.ala_api_base_url = self._get_config_value("ALA_API_URL", "https://api.ala.org.au")
         
@@ -634,7 +634,7 @@ class ALA:
                         result.get('acceptedIdentifier') or
                         result.get('identifier')
                     )
-                # --- NEW: Normalize ALA taxon GUIDs to LSID/URN format ---
+                # Normalize ALA taxon GUIDs to LSID/URN format ---
                 if guid and guid.startswith("https://biodiversity.org.au/afd/taxa/"):
                     lsid = "urn:lsid:biodiversity.org.au:afd.taxon:" + guid.rsplit("/", 1)[-1]
                     guid_map[name] = lsid
