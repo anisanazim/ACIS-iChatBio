@@ -16,7 +16,7 @@ from ala_logic import (
     SpeciesListItemsParams, SpeciesListDistinctFieldParams, SpeciesListCommonKeysParams
 )
 
-# --- AgentCard definition with url added ---
+# --- AgentCard definition with url ---
 card = AgentCard(
     name="Atlas of Living Australia Agent",
     description="Searches the Atlas of Living Australia for biodiversity records and species profiles.",

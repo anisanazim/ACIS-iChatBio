@@ -559,7 +559,7 @@ class SpeciesListCommonKeysParams(BaseModel):
     )
 
 class ALA:
-    def __init__(self): # Corrected to double underscores
+    def __init__(self): 
         self.openai_client = instructor.patch(AsyncOpenAI(api_key=self._get_config_value("OPENAI_API_KEY"), base_url="https://api.ai.it.ufl.edu"))
         self.ala_api_base_url = self._get_config_value("ALA_API_URL", "https://api.ala.org.au")
         
@@ -614,7 +614,7 @@ class ALA:
                         result.get('acceptedIdentifier') or
                         result.get('identifier')
                     )
-                # --- NEW: Normalize ALA taxon GUIDs to LSID/URN format ---
+                
                 if guid and guid.startswith("https://biodiversity.org.au/afd/taxa/"):
                     lsid = "urn:lsid:biodiversity.org.au:afd.taxon:" + guid.rsplit("/", 1)[-1]
                     guid_map[name] = lsid
@@ -661,12 +661,12 @@ class ALA:
         return self.execute_request(url), url
  
     def build_occurrence_url(self, params: OccurrenceSearchParams) -> str:
-        """Build occurrence search URL with improved safety and correctness."""
+        """Build occurrence search URL"""
         param_dict = params.model_dump(exclude_none=True, by_alias=True)
         api_params = {}
         fq_filters = [] 
 
-        # NEW: Remove q if spatial search params are present
+        #  Remove q if spatial search params are present
         if (
             param_dict.get("lat") is not None
             and param_dict.get("lon") is not None
@@ -675,7 +675,7 @@ class ALA:
         ):
             param_dict.pop("q")
 
-        # Handle real API parameters directly
+        # Handle  API parameters directly
         direct_api_params = [
             'q', 'fl', 'facets', 'flimit', 'fsort', 'foffset', 'fprefix',
             'sort', 'dir', 'includeMultivalues', 'qc', 'facet', 'qualityProfile',
@@ -686,7 +686,7 @@ class ALA:
             if param in param_dict:
                 api_params[param] = param_dict.pop(param)
                 
-        # Handle pagination - prefer real API params, fall back to legacy
+        # Handle pagination - prefer API params, fall back to legacy
         api_params['pageSize'] = param_dict.pop('pageSize', param_dict.pop('limit', 20))
         api_params['start'] = param_dict.pop('start', param_dict.pop('offset', 0))
 
@@ -785,7 +785,7 @@ class ALA:
         api_params = {}
         fq_filters = []
 
-        # --- NEW: Remove q if spatial search params are present ---
+        # Remove q if spatial search params are present ---
         if (
             param_dict.get("lat") is not None
             and param_dict.get("lon") is not None
@@ -793,7 +793,6 @@ class ALA:
             and param_dict.get("q") is not None
         ):
             param_dict.pop("q")
-        # ---------------------------------------------------------
 
         # Handle direct API parameters first
         direct_params = [
@@ -811,7 +810,7 @@ class ALA:
         if 'fq' in param_dict:
             fq_filters.extend(param_dict.pop('fq'))
 
-        # Convert user-friendly parameters to fq filters (with year special handling)
+        # Convert user-friendly parameters to fq filters
         if param_dict.pop('has_images', None):
             fq_filters.append("multimedia:Image")
         

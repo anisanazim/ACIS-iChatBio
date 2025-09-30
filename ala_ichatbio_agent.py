@@ -18,7 +18,7 @@ class ALAiChatBioAgent:
         self.ala_logic = ALA()
 
     async def run_occurrence_search(self, context, params: OccurrenceSearchParams):
-        """Workflow for searching occurrences using the new context object."""
+        """Workflow for searching occurrences using the context object."""
         async with context.begin_process("Searching for ALA occurrences") as process:
             await process.log("Extracted search parameters", data=params.model_dump(exclude_defaults=True))
 
@@ -434,7 +434,6 @@ class ALAiChatBioAgent:
                 return # Stop execution if metadata search fails
 
             # --- STEP 3: Parse JSON and extract the direct image URL ---
-            # --- STEP 3: Parse JSON and extract the direct image URL ---
 
             image_url = None
             try:
@@ -641,7 +640,7 @@ class ALAiChatBioAgent:
                 
                 # Extract sample species names for the reply
                 sample_species = []
-                for item in items[:3]:  # First 3 species
+                for item in items[:3]:  
                     if isinstance(item, dict):
                         name = item.get('name', item.get('scientificName', item.get('rawScientificName', 'Unknown')))
                         common_name = item.get('commonName', '')
