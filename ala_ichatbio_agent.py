@@ -991,8 +991,8 @@ class UnifiedALAReActAgent(IChatBioAgent):
             model="gpt-4o-mini", 
             tool_choice="required", 
             temperature=0,
-            api_key=self._ala_logic.get_config_value("OPENAI_API_KEY"),
-            base_url=self._ala_logic.get_config_value("OPENAI_BASE_URL", "https://api.ai.it.ufl.edu")
+            api_key=self._ala_logic._get_config_value("OPENAI_API_KEY"),
+            base_url=self._ala_logic._get_config_value("OPENAI_BASE_URL", "https://api.ai.it.ufl.edu")
         )
         
         system_message = self.create_system_prompt()
