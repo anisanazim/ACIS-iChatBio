@@ -987,8 +987,14 @@ class UnifiedALAReActAgent(IChatBioAgent):
             abort
         ]
 
-        # Create the LangChain ReAct agent
-        llm = ChatOpenAI(model="gpt-4o-mini", tool_choice="required", temperature=0)
+        # Create the LangChain ReAct agent using the same config as ala_logic
+        llm = ChatOpenAI(
+            model="gpt-4o-mini", 
+            tool_choice="required", 
+            temperature=0,
+            api_key=self._ala_logic.get_config_value("OPENAI_API_KEY"),
+            base_url=self._ala_logic.get_config_value("OPENAI_BASE_URL", "https://api.ai.it.ufl.edu")
+        )
         
         system_message = self.create_system_prompt()
         agent = langchain.agents.create_agent(
