@@ -945,8 +945,7 @@ class UnifiedALAReActAgent(IChatBioAgent):
     
     def __init__(self):
         self.workflow_agent = ALAiChatBioAgent()
-
-    # REMOVE the get_agent_card() method - we'll define the card in agent_server.py instead
+        self._ala_logic = ALA()
 
     @override
     async def run(self, context: ResponseContext, request: str, entrypoint: str, params: UnifiedALAParams):
