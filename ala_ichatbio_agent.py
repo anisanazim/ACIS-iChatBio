@@ -2,6 +2,8 @@ import asyncio
 import json
 from typing import Dict, Any
 import requests
+import os
+import yaml
 
 # Add new imports 
 from typing_extensions import override
@@ -945,8 +947,22 @@ class UnifiedALAReActAgent(IChatBioAgent):
     
     def __init__(self):
         self.workflow_agent = ALAiChatBioAgent()
-        self._ala_logic = ALA()
-
+    
+    def _get_config_value(self, key: str, default: str = None) -> str:
+        """Get configuration value from environment or env.yaml file"""
+        # First try environment variable
+        value = os.getenv(key)
+        if value:
+            return value
+            
+        # Then try env.yaml file
+        try:
+            with open("env.yaml", "r") as f:
+                config = yaml.safe_load(f) or {}
+                return config.get(key, default)
+        except FileNotFoundError:
+            return default
+        
     @override
     async def run(self, context: ResponseContext, request: str, entrypoint: str, params: UnifiedALAParams):
         """Execute the unified biodiversity search using ReAct agent."""
@@ -986,13 +1002,21 @@ class UnifiedALAReActAgent(IChatBioAgent):
             abort
         ]
 
+        # Get API configuration directly
+        api_key = self._get_config_value("OPENAI_API_KEY")
+        base_url = self._get_config_value("OPENAI_BASE_URL", "https://api.ai.it.ufl.edu")
+
+        if not api_key:
+            await context.reply("Error: OpenAI API key not found in environment or env.yaml file")
+            return
+        
         # Create the LangChain ReAct agent using the same config as ala_logic
         llm = ChatOpenAI(
             model="gpt-4o-mini", 
             tool_choice="required", 
             temperature=0,
-            api_key=self._ala_logic._get_config_value("OPENAI_API_KEY"),
-            base_url=self._ala_logic._get_config_value("OPENAI_BASE_URL", "https://api.ai.it.ufl.edu")
+            api_key=api_key,
+            base_url=base_url
         )
         
         system_message = self.create_system_prompt()
