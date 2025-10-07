@@ -3,6 +3,23 @@ import json
 from typing import Dict, Any
 import requests
 
+# Add new imports 
+from typing_extensions import override
+from pydantic import BaseModel, Field
+from typing import Optional
+import langchain.agents
+from langchain.tools import tool
+from langchain_openai import ChatOpenAI
+from ichatbio.agent import IChatBioAgent
+from ichatbio.agent_response import ResponseContext
+from ichatbio.types import AgentCard, AgentEntrypoint
+
+# Unified parameter model for ReAct agent
+class UnifiedALAParams(BaseModel):
+    query: str = Field(..., description="Natural language query about Australian biodiversity data")
+    context: Optional[str] = Field(None, description="Additional context or specific requirements")
+
+
 from ala_logic import (
     ALA, 
     OccurrenceSearchParams, OccurrenceLookupParams, OccurrenceFacetsParams, OccurrenceTaxaCountParams, TaxaCountHelper,
@@ -781,3 +798,257 @@ class ALAiChatBioAgent:
             except Exception as e:
                 # The run_get_distribution_by_lsid method already handles its own errors and replies.
                 await process.log("Error during distribution data fetch", data={"error": str(e)})
+
+
+class ALAToolset:
+    """Converts existing ALA workflows into LangChain tools"""
+    
+    def __init__(self, ala_agent: ALAiChatBioAgent, context):
+        self.ala_agent = ala_agent
+        self.context = context
+
+    @tool(return_direct=False)
+    async def search_occurrences(self, species_name: str, location: str = None, year: int = None) -> str:
+        """Search for species occurrence records in Australia. Use this when users ask about where species have been found or observed."""
+        params = OccurrenceSearchParams(q=species_name)
+        
+        # Add filters if provided
+        filters = []
+        if location:
+            filters.append(f"state:{location}")
+        if year:
+            filters.append(f"year:{year}")
+        if filters:
+            params.fq = filters
+            
+        await self.ala_agent.run_occurrence_search(self.context, params)
+        return f"Successfully searched for {species_name} occurrences"
+
+    @tool(return_direct=False)
+    async def lookup_species_guid(self, species_name: str) -> str:
+        """Look up the unique identifier (GUID) for a species by name. Essential for linking species to other data."""
+        params = SpeciesGuidLookupParams(name=species_name)
+        await self.ala_agent.run_species_guid_lookup(self.context, params)
+        return f"Successfully looked up GUID for {species_name}"
+
+    @tool(return_direct=False)
+    async def get_species_distribution(self, species_name: str) -> str:
+        """Get spatial distribution data for a species showing where it naturally occurs."""
+        params = SpeciesGuidLookupParams(name=species_name)
+        await self.ala_agent.run_get_distribution_by_name(self.context, params)
+        return f"Successfully retrieved distribution data for {species_name}"
+
+    @tool(return_direct=False)
+    async def count_species_occurrences(self, species_names: list, state: str = None, year: int = None) -> str:
+        """Count occurrence records for one or more species with optional filters."""
+        params = TaxaCountHelper(
+            species_names=species_names,
+            state=state,
+            year=year
+        )
+        await self.ala_agent.run_user_friendly_taxa_count(self.context, params)
+        return f"Successfully counted occurrences for {len(species_names)} species"
+
+    @tool(return_direct=False)
+    async def get_occurrence_facets(self, query: str = None, facets: list = None) -> str:
+        """Get data breakdowns and insights from occurrence records using facets."""
+        params = OccurrenceFacetsParams(
+            q=query,
+            facets=facets or ["state", "year", "basis_of_record"]
+        )
+        await self.ala_agent.run_get_occurrence_facets(self.context, params)
+        return f"Successfully retrieved occurrence facets"
+
+    @tool(return_direct=False)
+    async def search_species_images(self, species_id: str) -> str:
+        """Search for images of a species by its identifier."""
+        params = SpeciesImageSearchParams(id=species_id)
+        await self.ala_agent.run_species_image_search(self.context, params)
+        return f"Successfully searched for images of species {species_id}"
+
+    @tool(return_direct=False)
+    async def search_bie(self, query: str, filter_query: str = None) -> str:
+        """Search the Biodiversity Information Explorer (BIE) for species information."""
+        params = SpeciesBieSearchParams(q=query, fq=filter_query)
+        await self.ala_agent.run_species_bie_search(self.context, params)
+        return f"Successfully searched BIE for {query}"
+    
+    @tool(return_direct=False)
+    async def lookup_occurrence(self, record_uuid: str) -> str:
+        """Look up a specific occurrence record by its UUID identifier."""
+        params = OccurrenceLookupParams(recordUuid=record_uuid)
+        await self.ala_agent.run_occurrence_lookup(self.context, params)
+        return f"Successfully looked up occurrence record {record_uuid}"
+
+    @tool(return_direct=False)
+    async def get_index_fields(self) -> str:
+        """Get all available searchable fields in the occurrence database."""
+        params = NoParams()
+        await self.ala_agent.run_get_index_fields(self.context, params)
+        return f"Successfully retrieved all searchable fields"
+
+    @tool(return_direct=False)
+    async def list_distributions(self) -> str:
+        """List all expert distributions available in the spatial service."""
+        params = NoParams()
+        await self.ala_agent.run_list_distributions(self.context, params)
+        return f"Successfully listed available distributions"
+
+    @tool(return_direct=False)
+    async def get_distribution_by_lsid(self, lsid: str) -> str:
+        """Get expert distribution data for a taxon using its LSID identifier."""
+        params = SpatialDistributionByLsidParams(lsid=lsid)
+        await self.ala_agent.run_get_distribution_by_lsid(self.context, params)
+        return f"Successfully retrieved distribution for LSID {lsid}"
+
+    @tool(return_direct=False)
+    async def get_distribution_map(self, image_id: str) -> str:
+        """Get PNG image for a distribution map by image ID."""
+        params = SpatialDistributionMapParams(imageId=image_id)
+        await self.ala_agent.run_get_distribution_map(self.context, params)
+        return f"Successfully retrieved distribution map image {image_id}"
+
+    @tool(return_direct=False)
+    async def get_occurrence_taxa_count(self, guids: str, separator: str = ",") -> str:
+        """Get occurrence counts for specific taxa by their GUIDs/LSIDs."""
+        params = OccurrenceTaxaCountParams(guids=guids, separator=separator)
+        await self.ala_agent.run_get_occurrence_taxa_count(self.context, params)
+        return f"Successfully counted occurrences for provided taxa GUIDs"
+
+    @tool(return_direct=False)
+    async def filter_species_lists(self, scientific_names: list = None, drids: list = None) -> str:
+        """Filter species lists by scientific names or data resource IDs."""
+        params = SpeciesListFilterParams(
+            scientificNames=scientific_names,
+            drids=drids
+        )
+        await self.ala_agent.run_filter_species_lists(self.context, params)
+        return f"Successfully filtered species lists"
+
+    @tool(return_direct=False)
+    async def get_species_list_details(self, druid: str) -> str:
+        """Get detailed information about a specific species list."""
+        params = SpeciesListDetailsParams(druid=druid)
+        await self.ala_agent.run_get_species_list_details(self.context, params)
+        return f"Successfully retrieved details for species list {druid}"
+
+    @tool(return_direct=False)
+    async def get_species_list_items(self, druid: str, query: str = None) -> str:
+        """Get species from specific lists with optional name filtering."""
+        params = SpeciesListItemsParams(druid=druid, q=query)
+        await self.ala_agent.run_get_species_list_items(self.context, params)
+        return f"Successfully retrieved items from species list {druid}"
+
+    
+class UnifiedALAReActAgent(IChatBioAgent):
+    """Unified ALA agent using LangChain ReAct pattern"""
+    
+    def __init__(self):
+        self.workflow_agent = ALAiChatBioAgent()
+
+    # REMOVE the get_agent_card() method - we'll define the card in agent_server.py instead
+
+    @override
+    async def run(self, context: ResponseContext, request: str, entrypoint: str, params: UnifiedALAParams):
+        """Execute the unified biodiversity search using ReAct agent."""
+        
+        # Create tools with access to context
+        toolset = ALAToolset(self.workflow_agent, context)
+        
+        @tool(return_direct=True)
+        async def finish(message: str):
+            """Call this when you have successfully fulfilled the user's request."""
+            await context.reply(message)
+
+        @tool(return_direct=True)  
+        async def abort(reason: str):
+            """Call this if you cannot fulfill the user's request."""
+            await context.reply(f"I apologize, but I cannot fulfill your request: {reason}")
+
+        # Build list of all available tools
+        tools = [
+            toolset.search_occurrences,
+            toolset.lookup_species_guid, 
+            toolset.get_species_distribution,
+            toolset.count_species_occurrences,
+            toolset.get_occurrence_facets,
+            toolset.search_species_images,
+            toolset.search_bie,
+            toolset.lookup_occurrence,
+            toolset.get_index_fields,
+            toolset.list_distributions,
+            toolset.get_distribution_by_lsid,
+            toolset.get_distribution_map,
+            toolset.get_occurrence_taxa_count,
+            toolset.filter_species_lists,
+            toolset.get_species_list_details,
+            toolset.get_species_list_items,
+            finish,
+            abort
+        ]
+
+        # Create the LangChain ReAct agent
+        llm = ChatOpenAI(model="gpt-4o-mini", tool_choice="required", temperature=0)
+        
+        system_message = self.create_system_prompt()
+        agent = langchain.agents.create_agent(
+            model=llm,
+            tools=tools,
+            prompt=system_message
+        )
+
+        # Execute the agent
+        try:
+            await agent.ainvoke({
+                "messages": [
+                    {"role": "user", "content": f"{request}\n\nUser query: {params.query}"}
+                ]
+            })
+        except Exception as e:
+            await context.reply(f"I encountered an error while processing your request: {str(e)}")
+    
+    def create_system_prompt(self):
+        return """You are an expert assistant for Australian biodiversity data from the Atlas of Living Australia (ALA).
+
+    You help users find information about:
+    - Species occurrence records (where and when species have been observed)
+    - Individual occurrence record details by UUID
+    - Species identifiers and taxonomy information (GUIDs/LSIDs)
+    - Spatial distribution data and expert distribution maps
+    - Species occurrence counts and statistics
+    - Data breakdowns and insights using facets
+    - Species images and visual information
+    - Biodiversity Information Explorer (BIE) species profiles
+    - Species lists and conservation data
+    - Database schema and searchable field information
+
+    When a user asks a question:
+    1. Analyze what type of biodiversity information they need
+    2. Use the appropriate tools to retrieve the data
+    3. Call multiple tools if needed to fully answer their question
+    4. Always call 'finish' when you have successfully provided the information
+    5. Call 'abort' only if you cannot fulfill the request with available tools
+
+    Available tools can help you:
+    - Search for occurrence records of specific species with filters
+    - Look up individual occurrence records by UUID
+    - Find species identifiers (GUIDs) needed for other operations
+    - Get spatial distribution maps and expert distribution data
+    - Count occurrences with filters like location, time, and data source
+    - Get data breakdowns and statistical insights using facets
+    - Find species images and visual information
+    - Search the BIE for comprehensive species profiles
+    - Work with species lists and conservation data
+    - Filter and analyze species list contents
+    - Get database schema information and searchable fields
+    - Access expert distribution layers and spatial data
+
+    Advanced capabilities:
+    - Link species names to their unique identifiers automatically
+    - Combine multiple data sources for comprehensive species profiles
+    - Apply geographic, temporal, and taxonomic filters
+    - Generate statistical summaries and data breakdowns
+    - Access both observation records and expert knowledge
+    - Work with species conservation lists and management data
+
+    Be helpful, accurate, and always use the tools to provide current ALA data rather than general knowledge. When users ask about species, consider whether they need occurrence data, expert distributions, images, or comprehensive profiles."""
