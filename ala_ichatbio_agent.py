@@ -31,7 +31,7 @@ from ala_logic import (
     OccurrenceSearchParams, OccurrenceLookupParams, OccurrenceFacetsParams, OccurrenceTaxaCountParams, TaxaCountHelper,
     SpeciesGuidLookupParams, SpeciesImageSearchParams, SpeciesBieSearchParams,
     NoParams, SpatialDistributionByLsidParams, SpatialDistributionMapParams,
-    SpeciesListFilterParams, SpeciesListDetailsParams, 
+    SpeciesListDetailsParams, 
     SpeciesListItemsParams, SpeciesListDistinctFieldParams
 )
 class ALAiChatBioAgent:
@@ -543,53 +543,53 @@ class ALAiChatBioAgent:
                 await process.log("Error during API request", data={"error": str(e)})
                 await context.reply(f"I encountered an error while searching the BIE: {e}")
 
-    async def run_filter_species_lists(self, context, params: SpeciesListFilterParams):
-        """Workflow for filtering species lists by scientific names or data resource IDs"""
-        filter_description = []
-        if params.scientific_names:
-            filter_description.append(f"scientific names: {', '.join(params.scientific_names)}")
-        if params.dr_ids:
-            filter_description.append(f"data resource IDs: {', '.join(params.dr_ids)}")
+    # async def run_filter_species_lists(self, context, params: SpeciesListFilterParams):
+    #     """Workflow for filtering species lists by scientific names or data resource IDs"""
+    #     filter_description = []
+    #     if params.scientific_names:
+    #         filter_description.append(f"scientific names: {', '.join(params.scientific_names)}")
+    #     if params.dr_ids:
+    #         filter_description.append(f"data resource IDs: {', '.join(params.dr_ids)}")
         
-        filter_text = " and ".join(filter_description)
+    #     filter_text = " and ".join(filter_description)
         
-        async with context.begin_process(f"Filtering species lists by {filter_text}") as process:
-            await process.log("Filter parameters", data=params.model_dump(exclude_defaults=True))
+    #     async with context.begin_process(f"Filtering species lists by {filter_text}") as process:
+    #         await process.log("Filter parameters", data=params.model_dump(exclude_defaults=True))
 
-            try:
-                url, request_body = self.ala_logic.build_species_list_filter_url(params)
-                await process.log(f"Constructed API URL: {url}")
-                await process.log("Request body", data=request_body)
+    #         try:
+    #             url, request_body = self.ala_logic.build_species_list_filter_url(params)
+    #             await process.log(f"Constructed API URL: {url}")
+    #             await process.log("Request body", data=request_body)
 
-                loop = asyncio.get_event_loop()
-                raw_response = await loop.run_in_executor(None, lambda: self.ala_logic.execute_post_request(url, request_body))
+    #             loop = asyncio.get_event_loop()
+    #             raw_response = await loop.run_in_executor(None, lambda: self.ala_logic.execute_post_request(url, request_body))
                 
-                # Handle response structure
-                if isinstance(raw_response, list):
-                    lists = raw_response
-                    total = len(lists)
-                else:
-                    lists = raw_response.get('lists', raw_response.get('results', []))
-                    total = raw_response.get('totalRecords', len(lists))
+    #             # Handle response structure
+    #             if isinstance(raw_response, list):
+    #                 lists = raw_response
+    #                 total = len(lists)
+    #             else:
+    #                 lists = raw_response.get('lists', raw_response.get('results', []))
+    #                 total = raw_response.get('totalRecords', len(lists))
 
-                returned = len(lists)
-                await process.log(f"Filter successful, found {total} matching species lists.")
+    #             returned = len(lists)
+    #             await process.log(f"Filter successful, found {total} matching species lists.")
                 
-                await process.create_artifact(
-                    mimetype="application/json",
-                    description=f"Filtered species lists - {returned} results",
-                    uris=[url],
-                    data=raw_response,
-                    metadata={"list_count": returned, "total_matches": total, "filter_criteria": filter_text}
-                )
+    #             await process.create_artifact(
+    #                 mimetype="application/json",
+    #                 description=f"Filtered species lists - {returned} results",
+    #                 uris=[url],
+    #                 data=raw_response,
+    #                 metadata={"list_count": returned, "total_matches": total, "filter_criteria": filter_text}
+    #             )
                 
-                await context.reply(f"Found {total} species lists matching your filter criteria. I've created an artifact with the results.")
+    #             await context.reply(f"Found {total} species lists matching your filter criteria. I've created an artifact with the results.")
 
-            except ValueError as ve:
-                await context.reply(f"Filter error: {ve}")
-            except ConnectionError as e:
-                await process.log("Error during API request", data={"error": str(e)})
-                await context.reply(f"I encountered an error while filtering species lists: {e}")
+    #         except ValueError as ve:
+    #             await context.reply(f"Filter error: {ve}")
+    #         except ConnectionError as e:
+    #             await process.log("Error during API request", data={"error": str(e)})
+    #             await context.reply(f"I encountered an error while filtering species lists: {e}")
 
     async def run_get_species_list_details(self, context, params: SpeciesListDetailsParams):
         """Workflow for getting detailed information about a specific species list"""
