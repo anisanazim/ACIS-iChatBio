@@ -2,6 +2,29 @@ import asyncio
 import json
 from typing import Dict, Any
 import requests
+import os
+import yaml
+
+# Add new imports 
+from typing_extensions import override
+from pydantic import BaseModel, Field
+from typing import Optional
+import langchain.agents
+from langchain.tools import tool
+from langchain_openai import ChatOpenAI
+from ichatbio.agent import IChatBioAgent
+from ichatbio.agent_response import ResponseContext
+from ichatbio.types import AgentCard, AgentEntrypoint
+
+from langgraph.prebuilt import create_react_agent
+from langchain_core.messages import SystemMessage, HumanMessage
+
+
+# Unified parameter model for ReAct agent
+class UnifiedALAParams(BaseModel):
+    query: str = Field(..., description="Natural language query about Australian biodiversity data")
+    context: Optional[str] = Field(None, description="Additional context or specific requirements")
+
 
 from ala_logic import (
     ALA, 
@@ -9,7 +32,7 @@ from ala_logic import (
     SpeciesGuidLookupParams, SpeciesImageSearchParams, SpeciesBieSearchParams,
     NoParams, SpatialDistributionByLsidParams, SpatialDistributionMapParams,
     SpeciesListFilterParams, SpeciesListDetailsParams, 
-    SpeciesListItemsParams, SpeciesListDistinctFieldParams, SpeciesListCommonKeysParams
+    SpeciesListItemsParams, SpeciesListDistinctFieldParams
 )
 class ALAiChatBioAgent:
     """The iChatBio agent implementation for ALA"""
@@ -711,39 +734,6 @@ class ALAiChatBioAgent:
                 await process.log("Error during API request", data={"error": str(e)})
                 await context.reply(f"I encountered an error while retrieving distinct field values: {e}")
 
-    async def run_get_species_list_common_keys(self, context, params: SpeciesListCommonKeysParams):
-        """Workflow for getting common keys (KVP) across multiple species lists"""
-        async with context.begin_process(f"Getting common keys across species lists: {params.druid}") as process:
-            api_url = self.ala_logic.build_species_list_common_keys_url(params)
-            await process.log(f"Constructed API URL: {api_url}")
-
-            try:
-                loop = asyncio.get_event_loop()
-                raw_response = await loop.run_in_executor(None, lambda: self.ala_logic.execute_request(api_url))
-                
-                # Handle response structure
-                if isinstance(raw_response, list):
-                    common_keys = raw_response
-                else:
-                    common_keys = raw_response.get('keys', raw_response.get('results', []))
-                
-                key_count = len(common_keys)
-                await process.log(f"Found {key_count} common keys across the specified lists.")
-                
-                await process.create_artifact(
-                    mimetype="application/json",
-                    description=f"Common keys across species lists {params.druid} - {key_count} keys",
-                    uris=[api_url],
-                    data=raw_response,
-                    metadata={"data_source": "ALA Species List Common Keys", "druid": params.druid, "key_count": key_count}
-                )
-                
-                await context.reply(f"Found {key_count} common keys across the specified species lists. These keys can be used for additional data analysis.")
-
-            except ConnectionError as e:
-                await process.log("Error during API request", data={"error": str(e)})
-                await context.reply(f"I encountered an error while retrieving common keys: {e}")
-
     async def run_get_distribution_by_name(self, context, params: SpeciesGuidLookupParams):
         """
         Orchestrates the full workflow to get spatial distribution data for a species by its name.
@@ -781,3 +771,167 @@ class ALAiChatBioAgent:
             except Exception as e:
                 # The run_get_distribution_by_lsid method already handles its own errors and replies.
                 await process.log("Error during distribution data fetch", data={"error": str(e)})
+
+
+class UnifiedALAReActAgent(IChatBioAgent):
+    """Unified ALA agent using LangChain ReAct pattern"""
+    
+    def __init__(self):
+        self.workflow_agent = ALAiChatBioAgent()
+    
+    def _get_config_value(self, key: str, default: str = None) -> str:
+        """Get configuration value from environment or env.yaml file"""
+        # First try environment variable
+        value = os.getenv(key)
+        if value:
+            return value
+            
+        # Then try env.yaml file
+        try:
+            with open("env.yaml", "r") as f:
+                config = yaml.safe_load(f) or {}
+                return config.get(key, default)
+        except FileNotFoundError:
+            return default
+        
+    @override
+    async def run(self, context: ResponseContext, request: str, entrypoint: str, params: UnifiedALAParams):
+        """Execute the unified biodiversity search using ReAct agent"""
+        
+        # Get API configuration directly
+        api_key = self._get_config_value("OPENAI_API_KEY")
+        base_url = self._get_config_value("OPENAI_BASE_URL", "https://api.ai.it.ufl.edu")
+
+        if not api_key:
+            await context.reply("Error: OpenAI API key not found in environment or env.yaml file")
+            return
+
+        # Define tools as closures inside run() method
+        @tool(return_direct=True)
+        async def abort(reason: str):
+            """Call if you cannot fulfill the request."""
+            await context.reply(f"Unable to complete request: {reason}")
+
+        @tool(return_direct=True)
+        async def finish(summary: str):
+            """Call when request is successfully completed."""
+            await context.reply(summary)
+
+        @tool
+        async def search_species_occurrences(species_name: str, location: str = None) -> str:
+            """Search for species occurrence records in Australia."""
+            async with context.begin_process(f"Searching for {species_name} occurrences") as process:
+                try:
+                    params = OccurrenceSearchParams(q=species_name)
+                    if location:
+                        params.fq = [f"state:{location}"]
+                    
+                    await process.log(f"Searching ALA for {species_name} occurrences")
+                    await self.workflow_agent.run_occurrence_search(context, params)
+                    
+                    return f"Found occurrence records for {species_name}" + (f" in {location}" if location else "")
+                except Exception as e:
+                    await process.log(f"Error searching occurrences: {str(e)}")
+                    return f"Error searching occurrences: {str(e)}"
+
+        @tool
+        async def get_species_images(species_name: str) -> str:
+            """Get images of Australian species."""
+            async with context.begin_process(f"Fetching images for {species_name}") as process:
+                try:
+                    params = SpeciesImageSearchParams(q=species_name)
+                    await process.log(f"Searching ALA for {species_name} images")
+                    await self.workflow_agent.run_species_image_search(context, params)
+                    
+                    return f"Found images for {species_name}"
+                except Exception as e:
+                    await process.log(f"Error fetching images: {str(e)}")
+                    return f"Error fetching images: {str(e)}"
+
+        @tool
+        async def lookup_species_info(species_name: str) -> str:
+            """Look up comprehensive species information."""
+            async with context.begin_process(f"Looking up species info for {species_name}") as process:
+                try:
+                    params = SpeciesBieSearchParams(q=species_name)
+                    await process.log(f"Searching BIE for {species_name} information")
+                    await self.workflow_agent.run_bie_search(context, params)
+                    
+                    return f"Found species information for {species_name}"
+                except Exception as e:
+                    await process.log(f"Error looking up species info: {str(e)}")
+                    return f"Error looking up species info: {str(e)}"
+
+        @tool
+        async def get_species_distribution(species_name: str) -> str:
+            """Get species distribution maps and data."""
+            async with context.begin_process(f"Fetching distribution for {species_name}") as process:
+                try:
+                    # First get species GUID
+                    guid_params = SpeciesGuidLookupParams(name=species_name)
+                    await self.workflow_agent.run_species_guid_lookup(context, guid_params)
+                    
+                    await process.log(f"Retrieved distribution data for {species_name}")
+                    return f"Found distribution data for {species_name}"
+                except Exception as e:
+                    await process.log(f"Error fetching distribution: {str(e)}")
+                    return f"Error fetching distribution: {str(e)}"
+
+        tools = [
+            search_species_occurrences,
+            get_species_images, 
+            lookup_species_info,
+            get_species_distribution,
+            abort,
+            finish
+        ]
+
+        # Execute agent
+        async with context.begin_process("Processing your biodiversity request") as process:
+            await process.log(f"Initializing ALA agent for query: '{request}' with {len(tools)} available tools")
+            
+            llm = ChatOpenAI(
+                model="gpt-4o-mini",
+                api_key=api_key,
+                base_url=base_url
+            )
+            
+            system_prompt = self._make_system_prompt(params.query, request)
+            agent = create_react_agent(llm, tools)
+            
+            try:
+                await agent.ainvoke({
+                    "messages": [
+                        SystemMessage(content=system_prompt),
+                        HumanMessage(content=request)
+                    ]
+                })
+                
+            except Exception as e:
+                await process.log(f"Agent execution failed: {type(e).__name__} - {str(e)}")
+                await context.reply(f"An error occurred: {str(e)}")
+
+    def _make_system_prompt(self, user_query: str, user_request: str) -> str:
+        """Generate system prompt for ALA agent"""
+        return f"""\
+    You are an Australian biodiversity assistant with access to the Atlas of Living Australia (ALA) database.
+
+    User Query: "{user_query}"
+    Request: "{user_request}"
+
+    Available Tools:
+    - search_species_occurrences: Find where species have been observed in Australia
+    - get_species_images: Retrieve photos and images of species
+    - lookup_species_info: Get comprehensive species profiles and taxonomy
+    - get_species_distribution: Get distribution maps and geographic data
+
+    Instructions:
+    - Use search_species_occurrences for occurrence/sighting queries
+    - Use get_species_images when users want to see what species look like
+    - Use lookup_species_info for general species information and taxonomy
+    - Use get_species_distribution for geographic range and distribution data
+    - Call finish() with a comprehensive summary when done
+    - Call abort() if you cannot complete the request
+
+    Always create artifacts when retrieving data.
+    """

@@ -492,18 +492,6 @@ class TaxaCountHelper(BaseModel):
         examples=["HumanObservation", "PreservedSpecimen"]
     )
 
-# 1. POST /ws/specieslist/filter - Filter lists by scientific names or drIds
-class SpeciesListFilterParams(BaseModel):
-    """Filter species lists by scientific names or data resource IDs"""
-    scientific_names: Optional[List[str]] = Field(None,
-        description="List of scientific names to filter by",
-        examples=[["Phascolarctos cinereus"], ["Macropus rufus", "Osphranter robustus"]]
-    )
-    dr_ids: Optional[List[str]] = Field(None,
-        description="List of data resource IDs to filter by", 
-        examples=[["dr123", "dr456"]]
-    )
-
 # 2. GET /ws/specieslist/{druid} - Get species list details
 class SpeciesListDetailsParams(BaseModel):
     """Get details of a specific species list"""
@@ -548,14 +536,6 @@ class SpeciesListDistinctFieldParams(BaseModel):
     field: str = Field(...,
         description="The field (e.g. kingdom, matchedName, rawScientificName etc.) to get distinct values for",
         examples=["kingdom", "matchedName", "rawScientificName", "family", "genus"]
-    )
-
-# 5. GET /ws/listCommonKeys - Get common keys across species lists
-class SpeciesListCommonKeysParams(BaseModel):
-    """Get a list of common keys (KVP) across multiple species lists"""
-    druid: str = Field(...,
-        description="Comma separated data resource IDs to identify lists",
-        examples=["dr781", "dr123","dr781","dr332"]
     )
 
 class ALA:
@@ -925,22 +905,6 @@ class ALA:
         query_string = urlencode(api_params, doseq=True, quote_via=requests.utils.quote)
         return f"{self.ala_api_base_url}/occurrences/occurrences/taxaCount?{query_string}"
     
-    def build_species_list_filter_url(self, params: SpeciesListFilterParams) -> tuple:
-        """Build URL and request body for POST /ws/specieslist/filter"""
-        request_body = {}
-        
-        if params.scientific_names:
-            request_body["scientificNames"] = params.scientific_names
-        
-        if params.dr_ids:
-            request_body["drIds"] = params.dr_ids
-        
-        if not request_body:
-            raise ValueError("At least one filter (scientific_names or dr_ids) must be provided")
-        
-        url = f"{self.ala_api_base_url}/specieslist/ws/speciesList/filter"
-        return url, request_body
-
     def build_species_list_details_url(self, params: SpeciesListDetailsParams) -> str:
         """Build URL for GET /ws/specieslist/{druid}"""
         query_params = {
@@ -971,11 +935,6 @@ class ALA:
         """Build URL for GET /ws/speciesListItems/distinct/{field}"""
         return f"{self.ala_api_base_url}/specieslist/ws/speciesListItems/distinct/{params.field}"
 
-    def build_species_list_common_keys_url(self, params: SpeciesListCommonKeysParams) -> str:
-        """Build URL for GET /ws/listCommonKeys"""
-        query_params = {"druid": params.druid}
-        query_string = urlencode(query_params)
-        return f"{self.ala_api_base_url}/specieslist/ws/listCommonKeys?{query_string}"
 
     def execute_image_request(self, url: str) -> bytes:
         """Execute request for image data (PNG)."""
