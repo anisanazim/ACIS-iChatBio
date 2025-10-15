@@ -61,7 +61,7 @@ class ALAiChatBioAgent:
                     mimetype="application/json",
                     description=f"Raw JSON for {returned} ALA records.",
                     uris=[api_url],
-                    content=raw_response,
+                    content=json.dumps(raw_response).encode('utf-8'),
                     metadata={"record_count": returned, "total_matches": total}
                 )
                 
@@ -89,7 +89,7 @@ class ALAiChatBioAgent:
                     mimetype="application/json",
                     description=f"Raw JSON for occurrence record {params.recordUuid}",
                     uris=[api_url],
-                    content=raw_response,
+                    content=json.dumps(raw_response).encode('utf-8'),
                     metadata={"data_source": "ALA Occurrences", "uuid": params.recordUuid}
                     
                 )
@@ -115,7 +115,7 @@ class ALAiChatBioAgent:
                     mimetype="application/json",
                     description=f"Raw JSON list of all {field_count} indexed fields.",
                     uris=[api_url],
-                    content=raw_response,
+                    content=json.dumps(raw_response).encode('utf-8'),
                     metadata={"data_source": "ALA Index Fields", "field_count": field_count}
                     
                 )
@@ -139,7 +139,7 @@ class ALAiChatBioAgent:
                     mimetype="application/json",
                     description=f"Raw JSON for {count} expert distributions.",
                     uris=[api_url],
-                    content=raw_response,
+                    content=json.dumps(raw_response).encode('utf-8'),
                     metadata={"distribution_count": count}
                     
                 )
@@ -160,7 +160,7 @@ class ALAiChatBioAgent:
                     mimetype="application/json",
                     description=f"Raw JSON for distribution of LSID {params.lsid}.",
                     uris=[api_url],
-                    content=raw_response,
+                    content=json.dumps(raw_response).encode('utf-8'),
                     metadata={"lsid": params.lsid}
                 )
                 await context.reply(f"Fetched distribution data for LSID '{params.lsid}'.")
@@ -298,7 +298,7 @@ class ALAiChatBioAgent:
                     mimetype="application/json",
                     description=f"Taxa occurrence counts for {guid_count} taxa - {total_occurrences:,} total occurrences",
                     uris=[api_url],
-                    content=raw_response,
+                    content=json.dumps(raw_response).encode('utf-8'),
                     metadata={
                         "data_source": "ALA Occurrence Taxa Count",
                         "taxa_requested": guid_count,
@@ -362,7 +362,7 @@ class ALAiChatBioAgent:
                     mimetype="application/json",
                     description=f"Taxa occurrence counts - {total_occurrences:,} total occurrences.",
                     uris=[api_url],
-                    content=raw_response,
+                    content=json.dumps(raw_response).encode('utf-8'),
                     metadata={"total_occurrences": total_occurrences, "taxa_counted": taxa_with_records}
                 )
                 await context.reply(f"Found a total of {total_occurrences:,} occurrence records for the requested species with the specified filters.")
@@ -404,7 +404,7 @@ class ALAiChatBioAgent:
                     mimetype="application/json",
                     description=f"GUID lookup results for '{params.name}' - {matches_found} matches found",
                     uris=[api_url],
-                    content=raw_response,
+                    content=json.dumps(raw_response).encode('utf-8'),
                     metadata={
                         "data_source": "ALA Species GUID Lookup",
                         "search_term": params.name,
@@ -514,7 +514,7 @@ class ALAiChatBioAgent:
                     mimetype="application/json",
                     description=f"BIE search results for '{params.q}' - {results_count} results from {total_records} total",
                     uris=[api_url],
-                    content=raw_response,
+                    content=json.dumps(raw_response).encode('utf-8'),
                     metadata={
                         "data_source": "ALA BIE Search",
                         "search_query": params.q,
@@ -623,7 +623,7 @@ class ALAiChatBioAgent:
                     mimetype="application/json",
                     description=f"Species list details: {list_name}" + (f" ({list_count} lists)" if list_count > 1 else ""),
                     uris=[api_url],
-                    content=raw_response,
+                    content=json.dumps(raw_response).encode('utf-8'),
                     metadata={"data_source": "ALA Species List", "druid": params.druid, "list_count": list_count, "total_items": total_items}
                 )
                 
@@ -676,7 +676,7 @@ class ALAiChatBioAgent:
                     mimetype="application/json",
                     description=f"Species from list(s) {params.druid}" + (f" matching '{params.q}'" if params.q else "") + f" - {returned} items",
                     uris=[api_url],
-                    content=raw_response,
+                    content=json.dumps(raw_response).encode('utf-8'),
                     metadata={"data_source": "ALA Species List Items", "druid": params.druid, "returned_count": returned, "total_count": total, "search_query": params.q}
                 )
                 
@@ -718,7 +718,7 @@ class ALAiChatBioAgent:
                     mimetype="application/json",
                     description=f"Distinct values for field '{params.field}' - {value_count} unique values",
                     uris=[api_url],
-                    content=raw_response,
+                    content=json.dumps(raw_response).encode('utf-8'),
                     metadata={"data_source": "ALA Species List Distinct Fields", "field": params.field, "value_count": value_count}
                 )
                 
