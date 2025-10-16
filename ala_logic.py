@@ -575,13 +575,32 @@ class ALA:
         return value if value is not None else default
 
     async def _extract_params(self, user_query: str, response_model):
-        system_prompt = "You are an assistant that extracts search parameters for the Atlas of Living Australia (ALA) API..."
+        system_prompt = (
+            "You are an assistant that extracts search parameters for the Atlas of Living Australia (ALA) API.\n"
+            "Your job is to convert user queries into structured parameters for API requests.\n"
+            "For temporal queries, use the following mappings:\n"
+            "- 'after 2020' or 'since 2020' → year='2020+' or startdate='2021-01-01'\n"
+            "- 'before 2015' → year='<2015' or enddate='2014-12-31'\n"
+            "- 'between 2010 and 2020' → year='2010,2020' or startdate='2010-01-01', enddate='2020-12-31'\n"
+            "- 'in 2021' → year='2021'\n"
+            "If the query specifies a year range, use the 'year' field. For specific dates, use 'startdate' and 'enddate' in ISO format (YYYY-MM-DD).\n"
+            "Always extract all relevant filters, including taxonomic, spatial, and temporal parameters.\n"
+            "Example queries and expected outputs:\n"
+            "- 'Species in family Macropodidae recorded after 2020' → family='Macropodidae', year='2020+' or startdate='2021-01-01'\n"
+            "- 'Records between 2010 and 2020' → year='2010,2020' or startdate='2010-01-01', enddate='2020-12-31'\n"
+            "- 'Sightings before 2015' → year='<2015' or enddate='2014-12-31'\n"
+            "- 'Koala records in 2021' → species='Phascolarctos cinereus', year='2021'\n"
+            "If the query is ambiguous, prefer extracting the 'year' field for broad time filters, and 'startdate'/'enddate' for specific date ranges."
+        )
         try:
             return await self.openai_client.chat.completions.create(
                 model="gpt-4o-mini", response_model=response_model,
-                messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": f"Extract parameters from: {user_query}"}],
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": f"Extract parameters from: {user_query}"}
+                ],
                 temperature=0,
-            ) 
+            )
         except Exception as e:
             raise ValueError(f"Failed to extract parameters: {e}")
     
