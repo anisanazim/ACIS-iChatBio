@@ -8,13 +8,23 @@ from typing import Optional, List, Dict, Any
 from urllib.parse import urlencode
 import cloudscraper
 
+from functools import cache
+import requests
+
+@cache
+def get_bie_fields(base_url):
+    url = f"{base_url}/species/ws/indexFields"
+    response = requests.get(url, timeout=10)
+    response.raise_for_status()
+    return set(field['name'] for field in response.json())
+
 class OccurrenceSearchParams(BaseModel):
     """Pydantic model for ALA Occurrence Search API - matches real API structure while keeping user-friendly interface"""
     
     # Core search parameters
     q: Optional[str] = Field(None, 
         description="Main search query. Can be species name, vernacular name, or complex queries",
-        examples=["Kangaroo", "Phascolarctos cinereus", "vernacularName:koala"]
+        examples=["Kangaroo", "Phascolarctos cinereus", "vernacularName:koala", "genus:Macropus","species:cinereus", "kingdom:Animalia"]
     )
     
     fq: Optional[List[str]] = Field(None,

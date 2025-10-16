@@ -5,6 +5,7 @@ import requests
 import os
 import yaml
 from datetime import datetime
+from ala_logic import get_bie_fields
 
 # Add new imports 
 from typing_extensions import override
@@ -481,11 +482,36 @@ class ALAiChatBioAgent:
                 return
 
     async def run_species_bie_search(self, context, params: SpeciesBieSearchParams):
-        """Workflow for searching the Biodiversity Information Explorer (BIE)"""
+        """Workflow for searching the Biodiversity Information Explorer (BIE) with field validation"""
+
+        # --- Step 1: Fetch or cache valid BIE fields ---
+        try:
+            valid_bie_fields = get_bie_fields(self.ala_logic.ala_api_base_url)
+        except Exception as e:
+            await context.reply(f"Error fetching BIE index fields: {e}")
+            valid_bie_fields = set()  # fallback: allow nothing
+
+        # --- Step 2: Parse and filter params.fq ---
+        dropped_filters = []
+        filtered_fq = []
+        if params.fq:
+            # Support both string and list formats
+            fq_items = params.fq if isinstance(params.fq, list) else [params.fq]
+            for fq in fq_items:
+                # Assume format: field:value or field:"value"
+                field = fq.split(":", 1)[0].strip()
+                if field in valid_bie_fields:
+                    filtered_fq.append(fq)
+                else:
+                    dropped_filters.append(fq)
+            params.fq = filtered_fq if len(filtered_fq) > 1 else (filtered_fq[0] if filtered_fq else None)
+
         filter_description = f" with filter '{params.fq}'" if params.fq else ""
-        
         async with context.begin_process(f"Searching BIE for '{params.q}'{filter_description}") as process:
             await process.log("BIE search parameters", data=params.model_dump())
+            if dropped_filters:
+                await process.log("Dropped unsupported BIE filters", data={"dropped": dropped_filters})
+                await context.reply(f"Note: The following filters are not supported by BIE and were ignored: {dropped_filters}")
 
             api_url = self.ala_logic.build_species_bie_search_url(params)
             await process.log(f"Constructed API URL: {api_url}")
@@ -493,20 +519,19 @@ class ALAiChatBioAgent:
             try:
                 loop = asyncio.get_event_loop()
                 raw_response = await loop.run_in_executor(None, lambda: self.ala_logic.execute_request(api_url))
-                
                 await process.log("Successfully retrieved BIE search data.")
-                
+
                 # Extract information from the response
                 total_records = 0
                 results_count = 0
                 sample_results = []
-                
+
                 if isinstance(raw_response, dict):
                     search_results = raw_response.get('searchResults', {})
                     total_records = search_results.get('totalRecords', 0)
                     results = search_results.get('results', [])
                     results_count = len(results)
-                    
+
                     # Extract sample results
                     for result in results[:3]:
                         if isinstance(result, dict):
@@ -516,7 +541,7 @@ class ALAiChatBioAgent:
                                 sample_results.append(f"{name} ({common_name})")
                             else:
                                 sample_results.append(name)
-                
+
                 await process.create_artifact(
                     mimetype="application/json",
                     description=f"BIE search results for '{params.q}' - {results_count} results from {total_records} total",
@@ -530,7 +555,7 @@ class ALAiChatBioAgent:
                         "total_records": total_records
                     }
                 )
-                
+
                 # Create user-friendly response
                 if total_records > 0:
                     summary = f"Found {total_records} results in the BIE"
@@ -543,7 +568,7 @@ class ALAiChatBioAgent:
                     summary += "."
                 else:
                     summary = f"No results found in the BIE for '{params.q}'{filter_description}."
-                
+
                 await context.reply(summary)
 
             except ConnectionError as e:
