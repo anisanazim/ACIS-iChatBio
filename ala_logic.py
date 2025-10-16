@@ -3,7 +3,7 @@ import yaml
 import requests
 import instructor
 from openai import AsyncOpenAI
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional, List, Dict, Any
 from urllib.parse import urlencode
 import cloudscraper
@@ -420,14 +420,21 @@ class NoParams(BaseModel):
     pass
 
 class SpatialDistributionByLsidParams(BaseModel):
-    """Pydantic model for distribution information for a specific LSID"""
-    lsid: str = Field(..., 
-        description="Life Science Identifier for the taxon in https:// format", 
+    lsid: str = Field(
+        ...,
+        description="Life Science Identifier for the taxon in https:// format",
         examples=[
             "https://biodiversity.org.au/afd/taxa/6a01d711-2ac6-4928-bab4-a1de1a58e995",
             "https://biodiversity.org.au/afd/taxa/ae56080e-4e73-457d-93a1-0be6a1d50f34"
         ]
-    )    
+    )
+    @field_validator('lsid')
+    def validate_lsid(cls, v):
+        if not v.startswith("https://biodiversity.org.au/afd/taxa/"):
+            raise ValueError("Invalid LSID format")
+        return v
+
+   
 
 class SpatialDistributionMapParams(BaseModel):
     """Pydantic model for distribution map image for a species (after fetching the imageId) """

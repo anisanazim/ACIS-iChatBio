@@ -4,6 +4,7 @@ from typing import Dict, Any
 import requests
 import os
 import yaml
+from datetime import datetime
 
 # Add new imports 
 from typing_extensions import override
@@ -59,10 +60,16 @@ class ALAiChatBioAgent:
                 await process.log(f"Query successful, found {total} records.")
                 await process.create_artifact(
                     mimetype="application/json",
-                    description=f"Raw JSON for {returned} ALA records.",
+                    description=f"ALA occurrence records - showing {returned} of {total:,} total records",
                     uris=[api_url],
                     content=json.dumps(raw_response).encode('utf-8'),
-                    metadata={"record_count": returned, "total_matches": total}
+                    metadata={
+                        "record_count": returned,
+                        "total_matches": total,
+                        "search_params": params.model_dump(exclude_defaults=True),
+                        "data_source": "Atlas of Living Australia",
+                        "retrieval_date": datetime.now().strftime("%Y-%m-%d")
+                    }
                 )
                 
                 # Reply to the assistant with a summary of the action taken.
@@ -868,8 +875,10 @@ class UnifiedALAReActAgent(IChatBioAgent):
             async with context.begin_process(f"Fetching distribution for {species_name}") as process:
                 try:
                     await process.log(f"Searching for distribution data for {species_name}")
-                    await self.workflow_agent.run_get_distribution_by_name(context, species_name)
-                    
+                    await self.workflow_agent.run_get_distribution_by_name(
+                        context, 
+                        SpeciesGuidLookupParams(name=species_name)
+                    )
                     await process.log(f"Successfully retrieved distribution data for {species_name}")
                     return f"Found spatial distribution and geographic range data for {species_name}"
                     
