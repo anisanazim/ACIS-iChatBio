@@ -954,15 +954,15 @@ class UnifiedALAReActAgent(IChatBioAgent):
     Request: "{user_request}"
 
     Available Tools:
-    - search_species_occurrences: Find where species have been observed in Australia
+    - search_species_occurrences: Find where species have been observed in Australia, filter by year, location, or other occurrence-level attributes
     - get_species_images: Retrieve photos and images of species
-    - lookup_species_info: Get comprehensive species profiles and taxonomy
+    - lookup_species_info: Get comprehensive species profiles, taxonomy, and metadata (BIE search)
     - get_species_distribution: Get distribution maps and geographic data
 
     Instructions:
-    - Use search_species_occurrences for occurrence/sighting queries
+    - Use search_species_occurrences for queries about records, sightings, counts, or any filter involving year, state, location, or occurrence-level data
+    - Use lookup_species_info for taxonomy, species profiles, names, or metadata queries that do not involve occurrence-level filters
     - Use get_species_images when users want to see what species look like
-    - Use lookup_species_info for general species information and taxonomy
     - Use get_species_distribution for geographic range and distribution data
     - Call finish() with a comprehensive summary when done
     - Call abort() if you cannot complete the request
