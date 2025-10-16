@@ -578,19 +578,22 @@ class ALA:
         system_prompt = (
             "You are an assistant that extracts search parameters for the Atlas of Living Australia (ALA) API.\n"
             "Your job is to convert user queries into structured parameters for API requests.\n"
+            "Always extract all relevant filters from the query, including taxonomic (e.g., species, family), spatial (e.g., state, region), and temporal (e.g., year, date range) parameters.\n"
+            "If the query contains multiple filters, output all of them as a list (e.g., fq=['state:Queensland', 'year:[2023 TO *]']).\n"
             "For temporal queries, use the following mappings:\n"
             "- 'after 2020' or 'since 2020' → year='2020+' or startdate='2021-01-01'\n"
             "- 'before 2015' → year='<2015' or enddate='2014-12-31'\n"
             "- 'between 2010 and 2020' → year='2010,2020' or startdate='2010-01-01', enddate='2020-12-31'\n"
             "- 'in 2021' → year='2021'\n"
             "If the query specifies a year range, use the 'year' field. For specific dates, use 'startdate' and 'enddate' in ISO format (YYYY-MM-DD).\n"
-            "Always extract all relevant filters, including taxonomic, spatial, and temporal parameters.\n"
             "Example queries and expected outputs:\n"
             "- 'Species in family Macropodidae recorded after 2020' → family='Macropodidae', year='2020+' or startdate='2021-01-01'\n"
             "- 'Records between 2010 and 2020' → year='2010,2020' or startdate='2010-01-01', enddate='2020-12-31'\n"
             "- 'Sightings before 2015' → year='<2015' or enddate='2014-12-31'\n"
             "- 'Koala records in 2021' → species='Phascolarctos cinereus', year='2021'\n"
-            "If the query is ambiguous, prefer extracting the 'year' field for broad time filters, and 'startdate'/'enddate' for specific date ranges."
+            "- 'Find all records for kangaroo in Queensland after 2022' → q='kangaroo', fq=['state:Queensland', 'year:[2023 TO *]']\n"
+            "If the query is ambiguous, prefer extracting the 'year' field for broad time filters, and 'startdate'/'enddate' for specific date ranges.\n"
+            "Output all filters and parameters that are present in the user query."
         )
         try:
             return await self.openai_client.chat.completions.create(
