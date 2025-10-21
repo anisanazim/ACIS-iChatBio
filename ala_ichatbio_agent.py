@@ -17,6 +17,8 @@ from langchain_openai import ChatOpenAI
 from ichatbio.agent import IChatBioAgent
 from ichatbio.agent_response import ResponseContext
 from ichatbio.types import AgentCard, AgentEntrypoint
+from parameter_resolver import ALAParameterResolver
+from ala_logic import ALASearchResponse
 
 from langgraph.prebuilt import create_react_agent
 from langchain_core.messages import SystemMessage, HumanMessage
@@ -850,21 +852,44 @@ class UnifiedALAReActAgent(IChatBioAgent):
             await context.reply(summary)
 
         @tool
-        async def search_species_occurrences(species_name: str, location: str = None) -> str:
-            """Search for species occurrence records in Australia."""
-            async with context.begin_process(f"Searching for {species_name} occurrences") as process:
+        async def search_species_occurrences(user_query: str) -> str:
+            """Search for species occurrence records in Australia with enhanced parameter extraction."""
+            
+            async with context.begin_process(f"Searching ALA for: '{user_query}'") as process:
+                
+                # Step 1: Enhanced parameter extraction with validation
                 try:
-                    params = OccurrenceSearchParams(q=species_name)
-                    if location:
-                        params.fq = [f"state:{location}"]
-                    
-                    await process.log(f"Searching ALA for {species_name} occurrences")
-                    await self.workflow_agent.run_occurrence_search(context, params)
-                    
-                    return f"Found occurrence records for {species_name}" + (f" in {location}" if location else "")
+                    extracted = await self.workflow_agent.ala_logic._extract_params_enhanced(user_query, ALASearchResponse)
+                    await process.log("Enhanced extraction successful", data=extracted.model_dump())
+                except ValueError as e:
+                    await process.log(f"Parameter extraction failed: {e}")
+                    return f"I had trouble understanding your query: {e}"
+                
+                # Step 2: Automatic parameter resolution
+                resolver = ALAParameterResolver(self.workflow_agent.ala_logic.ala_api_base_url)
+                resolved = await resolver.resolve_unresolved_params(extracted)
+                
+                if resolved.clarification_needed:
+                    return f"I need clarification: {resolved.clarification_reason}"
+                
+                # Step 3: Create OccurrenceSearchParams
+                occurrence_params = OccurrenceSearchParams(
+                    q=resolved.params.get('q', '*'),
+                    fq=resolved.params.get('fq', []),
+                    year=resolved.params.get('year'),
+                    startdate=resolved.params.get('startdate'),
+                    enddate=resolved.params.get('enddate'),
+                    pageSize=resolved.params.get('pageSize', 20),
+                    start=resolved.params.get('start', 0)
+                )
+                
+                # Step 4: Execute search using existing workflow
+                try:
+                    await self.workflow_agent.run_occurrence_search(context, occurrence_params)
+                    return f"Successfully found occurrence records for: {resolved.artifact_description}"
                 except Exception as e:
-                    await process.log(f"Error searching occurrences: {str(e)}")
-                    return f"Error searching occurrences: {str(e)}"
+                    return f"Error executing search: {str(e)}"
+
 
         @tool
         async def get_species_images(species_name: str) -> str:

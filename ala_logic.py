@@ -555,6 +555,37 @@ class SpeciesListDistinctFieldParams(BaseModel):
         examples=["kingdom", "matchedName", "rawScientificName", "family", "genus"]
     )
 
+from pydantic import BaseModel, Field, field_validator
+from typing import List, Optional, Dict, Any
+
+class ALASearchResponse(BaseModel):
+    params: Dict[str, Any] = Field(description="Extracted API parameters")
+    unresolved_params: List[str] = Field(default=[], description="Parameters needing clarification")
+    clarification_needed: bool = Field(default=False, description="Whether clarification is required")
+    clarification_reason: str = Field(default="", description="Why clarification is needed")
+    artifact_description: str = Field(default="", description="Description of expected results")
+    
+    @field_validator('params')
+    @classmethod
+    def validate_params(cls, v, info):
+        # Get original query from context if available
+        context = info.context or {}
+        original_query = context.get('original_query', '')
+        
+        # Check for temporal keywords
+        temporal_keywords = ['before', 'after', 'since', 'between', 'in', 'during']
+        has_temporal = any(keyword in original_query.lower() for keyword in temporal_keywords)
+        
+        if has_temporal:
+            # Check if any temporal parameter exists
+            temporal_params = ['year', 'startdate', 'enddate']
+            has_temporal_param = any(param in v for param in temporal_params)
+            
+            if not has_temporal_param:
+                raise ValueError(f"Temporal query detected ('{original_query}') but no temporal parameters extracted. Must include year, startdate, or enddate.")
+                
+        return v
+
 class ALA:
     def __init__(self): 
         self.openai_client = instructor.patch(AsyncOpenAI(api_key=self._get_config_value("OPENAI_API_KEY"), base_url="https://api.ai.it.ufl.edu"))
@@ -574,35 +605,58 @@ class ALA:
                 value = (yaml.safe_load(f) or {}).get(key, default)
         return value if value is not None else default
 
-    async def _extract_params(self, user_query: str, response_model):
-        system_prompt = (
-            "You are an assistant that extracts search parameters for the Atlas of Living Australia (ALA) API.\n"
-            "Your job is to convert user queries into structured parameters for API requests.\n"
-            "Always extract all relevant filters from the query, including taxonomic (e.g., species, family), spatial (e.g., state, region), and temporal (e.g., year, date range) parameters.\n"
-            "If the query contains multiple filters, output all of them as a list (e.g., fq=['state:Queensland', 'year:[2023 TO *]']).\n"
-            "For temporal queries, use the following mappings:\n"
-            "- 'after 2020' or 'since 2020' → year='2020+' or startdate='2021-01-01'\n"
-            "- 'before 2015' → year='<2015' or enddate='2014-12-31'\n"
-            "- 'between 2010 and 2020' → year='2010,2020' or startdate='2010-01-01', enddate='2020-12-31'\n"
-            "- 'in 2021' → year='2021'\n"
-            "If the query specifies a year range, use the 'year' field. For specific dates, use 'startdate' and 'enddate' in ISO format (YYYY-MM-DD).\n"
-            "Example queries and expected outputs:\n"
-            "- 'Species in family Macropodidae recorded after 2020' → family='Macropodidae', year='2020+' or startdate='2021-01-01'\n"
-            "- 'Records between 2010 and 2020' → year='2010,2020' or startdate='2010-01-01', enddate='2020-12-31'\n"
-            "- 'Sightings before 2015' → year='<2015' or enddate='2014-12-31'\n"
-            "- 'Koala records in 2021' → species='Phascolarctos cinereus', year='2021'\n"
-            "- 'Find all records for kangaroo in Queensland after 2022' → q='kangaroo', fq=['state:Queensland', 'year:[2023 TO *]']\n"
-            "If the query is ambiguous, prefer extracting the 'year' field for broad time filters, and 'startdate'/'enddate' for specific date ranges.\n"
-            "Output all filters and parameters that are present in the user query."
-        )
+    async def _extract_params_enhanced(self, user_query: str, response_model=ALASearchResponse):
+        system_prompt = """
+        You are an assistant that extracts search parameters for the Atlas of Living Australia (ALA) API.
+        
+        CRITICAL RULES:
+        1. Extract ALL relevant parameters from the user query - taxonomic, spatial, AND temporal
+        2. For temporal queries, ALWAYS extract year/date parameters:
+        - "before 2018" → year="<2018"
+        - "after 2020" → year="2020+"  
+        - "between 2010 and 2020" → year="2010,2020"
+        - "in 2021" → year="2021"
+        - "since 2015" → year="2015+"
+        
+        3. For common names that you're unsure about, mark for resolution:
+        - unresolved_params=["scientific_name"] 
+        - clarification_needed=true
+        - clarification_reason="Need to resolve 'koala' to scientific name"
+        
+        4. Extract spatial parameters:
+        - "in Queensland" → fq=["state:Queensland"]
+        - "New South Wales" → fq=["state:New South Wales"]
+        
+        5. Extract taxonomic parameters:
+        - "family Macropodidae" → family="Macropodidae"
+        - "koala" → q="koala" (and mark scientific_name as unresolved)
+        
+        EXAMPLES:
+        Query: "Koala sightings in New South Wales before 2018"
+        Response: {
+            "params": {
+                "q": "koala",
+                "fq": ["state:New South Wales"],
+                "year": "<2018"
+            },
+            "unresolved_params": ["scientific_name"],
+            "clarification_needed": true,
+            "clarification_reason": "Need to resolve 'koala' to scientific name for more accurate search",
+            "artifact_description": "Koala occurrence records in New South Wales before 2018"
+        }
+        """
+        
         try:
             return await self.openai_client.chat.completions.create(
-                model="gpt-4o-mini", response_model=response_model,
+                model="gpt-4o-mini", 
+                response_model=response_model,
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": f"Extract parameters from: {user_query}"}
                 ],
                 temperature=0,
+                max_retries=3,
+                validation_context={"original_query": user_query}  # Pass query for validation
             )
         except Exception as e:
             raise ValueError(f"Failed to extract parameters: {e}")
