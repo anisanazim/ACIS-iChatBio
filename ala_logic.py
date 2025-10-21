@@ -787,31 +787,35 @@ class ALA:
                 value = param_dict.pop(user_param)
                 if user_param == "year":
                     # Handle ranges in value
-                    # Example 1: year='2001,2025' -> year:[2001 TO 2025]
                     if isinstance(value, str) and "," in value:
+                        # Example: year='2001,2025' -> year:[2001 TO 2025]
                         years = [v.strip() for v in value.split(",")]
                         if len(years) == 2:
                             fq_filters.append(f'{api_field}:[{years[0]} TO {years[1]}]')
                         else:
                             fq_filters.extend([f'{api_field}:{y}' for y in years if y])
-                    # Example 2: year='2001+' means after 2000 forever
                     elif isinstance(value, str) and value.endswith("+"):
+                        # Example: year='2001+' -> year:[2002 TO *] (after 2001)
                         year_start = value[:-1]
-                        fq_filters.append(f'{api_field}:[{year_start} TO *]')
-                    # Example 3: year='2001' (just one year)
-                    elif isinstance(value, str):
+                        fq_filters.append(f'{api_field}:[{int(year_start)+1} TO *]')
+                    elif isinstance(value, str) and value.startswith("<"):
+                        # Example: year='<2018' -> year:[* TO 2017] (before 2018)
+                        year_end = value[1:]  # Remove '<'
+                        fq_filters.append(f'{api_field}:[* TO {int(year_end)-1}]')
+                    elif isinstance(value, str) and value.startswith(">"):
+                        # Example: year='>2020' -> year:[2021 TO *] (after 2020)
+                        year_start = value[1:]  # Remove '>'
+                        fq_filters.append(f'{api_field}:[{int(year_start)+1} TO *]')
+                    elif isinstance(value, str) and value.isdigit():
+                        # Example: year='2021' -> year:2021
                         fq_filters.append(f'{api_field}:{value}')
-                    # Example 4: year is a number or list
                     elif isinstance(value, (list, tuple)) and len(value) == 2:
+                        # Example: year=[2010, 2020] -> year:[2010 TO 2020]
                         fq_filters.append(f'{api_field}:[{value[0]} TO {value[1]}]')
                     else:
+                        # Fallback for other formats
                         fq_filters.append(f'{api_field}:{value}')
-                else:
-                    if isinstance(value, str) and " " in value:
-                        fq_filters.append(f'{api_field}:"{value}"')
-                    else:
-                        fq_filters.append(f'{api_field}:{value}')
-                   
+         
         # Handle date ranges
         start_date = param_dict.pop('startdate', None)
         end_date = param_dict.pop('enddate', None)
