@@ -618,20 +618,37 @@ class ALA:
         - "in 2021" → year="2021"
         - "since 2015" → year="2015+"
         
-        3. For common names that you're unsure about, mark for resolution:
-        - unresolved_params=["scientific_name"] 
-        - clarification_needed=true
-        - clarification_reason="Need to resolve 'koala' to scientific name"
+        3. For simple occurrence queries with common names, you can proceed WITHOUT scientific name resolution:
+        - "Show me koala occurrences" → {"q": "koala"} (no resolution needed)
+        - "Find wombat records" → {"q": "wombat"} (no resolution needed)
+        - "Kangaroo sightings" → {"q": "kangaroo"} (no resolution needed)
         
-        4. Extract spatial parameters:
+        4. Only mark scientific_name as unresolved if:
+        - The query is complex/ambiguous
+        - Multiple species might match
+        - User specifically asks for scientific details
+        - You genuinely cannot determine the species
+        
+        5. Extract spatial parameters:
         - "in Queensland" → fq=["state:Queensland"]
         - "New South Wales" → fq=["state:New South Wales"]
         
-        5. Extract taxonomic parameters:
+        6. Extract taxonomic parameters:
         - "family Macropodidae" → family="Macropodidae"
-        - "koala" → q="koala" (and mark scientific_name as unresolved)
+        - "genus Eucalyptus" → genus="Eucalyptus"
         
         EXAMPLES:
+        Query: "Show me koala occurrences in Australia"
+        Response: {
+            "params": {
+                "q": "koala"
+            },
+            "unresolved_params": [],
+            "clarification_needed": false,
+            "clarification_reason": "",
+            "artifact_description": "Koala occurrence records in Australia"
+        }
+        
         Query: "Koala sightings in New South Wales before 2018"
         Response: {
             "params": {
@@ -639,10 +656,22 @@ class ALA:
                 "fq": ["state:New South Wales"],
                 "year": "<2018"
             },
-            "unresolved_params": ["scientific_name"],
-            "clarification_needed": true,
-            "clarification_reason": "Need to resolve 'koala' to scientific name for more accurate search",
+            "unresolved_params": [],
+            "clarification_needed": false,
+            "clarification_reason": "",
             "artifact_description": "Koala occurrence records in New South Wales before 2018"
+        }
+        
+        Query: "Species in family Macropodidae recorded after 2019"
+        Response: {
+            "params": {
+                "family": "Macropodidae",
+                "year": "2019+"
+            },
+            "unresolved_params": [],
+            "clarification_needed": false,
+            "clarification_reason": "",
+            "artifact_description": "Records of the family Macropodidae since 2020"
         }
         """
         
