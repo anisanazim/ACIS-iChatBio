@@ -872,10 +872,31 @@ class UnifiedALAReActAgent(IChatBioAgent):
                 if resolved.clarification_needed:
                     return f"I need clarification: {resolved.clarification_reason}"
                 
-                # Step 3: Create OccurrenceSearchParams
+                # Step 3: Convert enhanced parameters to fq filters - ADD THIS SECTION HERE
+                fq_filters = resolved.params.get('fq', []).copy()
+                
+                # Convert taxonomic parameters to fq filters
+                if 'family' in resolved.params:
+                    fq_filters.append(f"family:{resolved.params['family']}")
+                if 'genus' in resolved.params:
+                    fq_filters.append(f"genus:{resolved.params['genus']}")
+                if 'species' in resolved.params:
+                    fq_filters.append(f"species:{resolved.params['species']}")
+                if 'class' in resolved.params:
+                    fq_filters.append(f"class:{resolved.params['class']}")
+                if 'order' in resolved.params:
+                    fq_filters.append(f"order:{resolved.params['order']}")
+                if 'kingdom' in resolved.params:
+                    fq_filters.append(f"kingdom:{resolved.params['kingdom']}")
+
+                # Step 4: Create OccurrenceSearchParams
                 occurrence_params = OccurrenceSearchParams(
                     q=resolved.params.get('q', '*'),
-                    fq=resolved.params.get('fq', []),
+                    fq=fq_filters, 
+                    # q=resolved.params.get('fq', []), 
+                    # family=resolved.params.get('family'),        
+                    # genus=resolved.params.get('genus'),          
+                    # species=resolved.params.get('species'), 
                     year=resolved.params.get('year'),
                     startdate=resolved.params.get('startdate'),
                     enddate=resolved.params.get('enddate'),
@@ -883,7 +904,7 @@ class UnifiedALAReActAgent(IChatBioAgent):
                     start=resolved.params.get('start', 0)
                 )
                 
-                # Step 4: Execute search using existing workflow
+                # Step 5: Execute search using existing workflow
                 try:
                     await self.workflow_agent.run_occurrence_search(context, occurrence_params)
                     return f"Successfully found occurrence records for: {resolved.artifact_description}"
