@@ -1011,11 +1011,29 @@ class UnifiedALAReActAgent(IChatBioAgent):
     3. Do NOT call the same tool multiple times
     4. Do NOT call additional tools unless the user explicitly asks for multiple types of information
 
-    Tool Usage Instructions:
-    - Use search_species_occurrences for queries about records, sightings, counts, or any filter involving year, state, location, or occurrence-level data
-    - Use lookup_species_info for taxonomy, species profiles, names, or metadata queries
-    - Use get_species_images only if the user explicitly asks to see images, photos, or what a species looks like
-    - Use get_species_distribution for geographic range and distribution data
+    TOOL SELECTION RULES - CHOOSE THE RIGHT TOOL:
+    - For occurrence queries (records, sightings, observations, "where", "when", "how many"):
+    → Use search_species_occurrences
+    → Examples: "Show koala occurrences", "Find records in Queensland", "Sightings after 2020"
+
+    - For taxonomy queries (classification, "what family", "scientific name", species information):
+    → Use lookup_species_info  
+    → Examples: "What family does bilby belong to?", "Tell me about Macropus rufus", "Classification of koala"
+
+    - For image requests (photos, pictures, "what does it look like"):
+    → Use get_species_images
+    → Examples: "Show me photos of wombat", "What does echidna look like?"
+
+    - For distribution queries (range, habitat, geographic data):
+    → Use get_species_distribution
+    → Examples: "Where do platypus live?", "Distribution of quoll"
+
+    QUERY INTERPRETATION:
+    - "Show me [species] occurrences" = occurrence search (NOT taxonomy)
+    - "Find [species] records" = occurrence search (NOT taxonomy)  
+    - "[Species] sightings" = occurrence search (NOT taxonomy)
+    - "What is [species]?" = taxonomy search (NOT occurrence)
+    - "Tell me about [species]" = taxonomy search (NOT occurrence)
 
     For taxonomy queries specifically:
     - Call lookup_species_info ONCE
@@ -1026,5 +1044,6 @@ class UnifiedALAReActAgent(IChatBioAgent):
 
     Always create artifacts when retrieving data.
     """
+
 
 
