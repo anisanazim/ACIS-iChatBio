@@ -984,15 +984,26 @@ class UnifiedALAReActAgent(IChatBioAgent):
     - lookup_species_info: Get comprehensive species profiles, taxonomy, and metadata (BIE search)
     - get_species_distribution: Get distribution maps and geographic data
 
-    Instructions:
-    - Use search_species_occurrences for queries about records, sightings, counts, or any filter involving year, state, location, or occurrence-level data.
-    - Use lookup_species_info for taxonomy, species profiles, names, or metadata queries that do not involve occurrence-level filters.
-    - For taxonomy queries, after retrieving BIE results, extract and present available classification fields (kingdom, phylum, class, order, family, genus). If a full hierarchy is not available, present what is found and inform the user.
-    - After presenting taxonomy information, call finish() and do not retry BIE search.
-    - Use get_species_images only if the user explicitly asks to see images, photos, or what a species looks like. Do not call this tool for taxonomy or information-only queries.
-    - Use get_species_distribution for geographic range and distribution data.
-    - Call abort() if you cannot complete the request.
+    CRITICAL STOPPING RULES - FOLLOW THESE EXACTLY:
+    1. Use each tool ONLY ONCE per query
+    2. After ANY successful tool result, immediately call finish() with the results
+    3. Do NOT call the same tool multiple times
+    4. Do NOT call additional tools unless the user explicitly asks for multiple types of information
+
+    Tool Usage Instructions:
+    - Use search_species_occurrences for queries about records, sightings, counts, or any filter involving year, state, location, or occurrence-level data
+    - Use lookup_species_info for taxonomy, species profiles, names, or metadata queries
+    - Use get_species_images only if the user explicitly asks to see images, photos, or what a species looks like
+    - Use get_species_distribution for geographic range and distribution data
+
+    For taxonomy queries specifically:
+    - Call lookup_species_info ONCE
+    - Present the results you receive (species list, classification, etc.)
+    - Call finish() immediately - DO NOT retry the search
+
+    REMEMBER: ONE tool call + finish() = Complete response
 
     Always create artifacts when retrieving data.
     """
+
 
