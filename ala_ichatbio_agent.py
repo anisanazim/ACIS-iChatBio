@@ -55,7 +55,10 @@ class ALAiChatBioAgent:
             await process.log("Querying ALA for occurrence data...")
             try:
                 loop = asyncio.get_event_loop()
-                raw_response = await loop.run_in_executor(None, lambda: self.ala_logic.execute_request(api_url))
+                raw_response = await asyncio.wait_for(
+                    loop.run_in_executor(None, lambda: self.ala_logic.execute_request(api_url)),
+                    timeout=30.0
+                )
                 
                 total = raw_response.get('totalRecords', 0)
                 returned = len(raw_response.get('occurrences', []))
@@ -78,8 +81,11 @@ class ALAiChatBioAgent:
                 # Reply to the assistant with a summary of the action taken.
                 await context.reply(f"I have successfully searched for occurrences and found {total} matching records. I've created an artifact with the results.")
 
+            except asyncio.TimeoutError:
+                await process.log("API took too long to respond. Consider refining your request to reduce response time.")
+                await context.reply("API took too long to respond. Consider refining your request to reduce response time.")
             except ConnectionError as e:
-                await process.log("Error during API request", data={"error": str(e)})
+                await process.log(f"Error during API request", data={"error": str(e)})
                 await context.reply(f"I encountered an error while trying to search for occurrences: {e}")
 
     async def run_occurrence_lookup(self, context, params: OccurrenceLookupParams):
@@ -90,7 +96,10 @@ class ALAiChatBioAgent:
 
             try:
                 loop = asyncio.get_event_loop()
-                raw_response = await loop.run_in_executor(None, lambda: self.ala_logic.execute_request(api_url))
+                raw_response = await asyncio.wait_for(
+                    loop.run_in_executor(None, lambda: self.ala_logic.execute_request(api_url)),
+                    timeout=30.0
+                )
                 
                 scientific_name = raw_response.get('processed', {}).get('scientificName', 'Unknown Species')
                 await process.log(f"Successfully found record for '{scientific_name}'.")
@@ -105,10 +114,13 @@ class ALAiChatBioAgent:
                 )
                 await context.reply(f"I have retrieved the details for the occurrence record of '{scientific_name}'.")
 
+            except asyncio.TimeoutError:
+                await process.log("API took too long to respond. Consider refining your request to reduce response time.")
+                await context.reply("API took too long to respond. Consider refining your request to reduce response time.")
             except ConnectionError as e:
-                await process.log("Error during API request", data={"error": str(e)})
-                await context.reply(f"I encountered an error while looking up the occurrence record: {e}")
-
+                await process.log(f"Error during API request", data={"error": str(e)})
+                await context.reply(f"I encountered an error while trying to search for occurrences: {e}")
+    
     async def run_get_index_fields(self, context, params: NoParams):
         """Workflow for getting all available index fields."""
         async with context.begin_process("Fetching all available ALA index fields") as process:
@@ -117,7 +129,10 @@ class ALAiChatBioAgent:
 
             try:
                 loop = asyncio.get_event_loop()
-                raw_response = await loop.run_in_executor(None, lambda: self.ala_logic.execute_request(api_url))
+                raw_response = await asyncio.wait_for(
+                    loop.run_in_executor(None, lambda: self.ala_logic.execute_request(api_url)),
+                    timeout=30.0
+                )
                 field_count = len(raw_response)
 
                 await process.log(f"Successfully found {field_count} indexed fields.")
@@ -129,12 +144,14 @@ class ALAiChatBioAgent:
                     metadata={"data_source": "ALA Index Fields", "field_count": field_count}
                     
                 )
-                await context.reply(f"I have retrieved a list of all {field_count} searchable fields from the ALA.")
-            
+                await context.reply(f"I have retrieved a list of all {field_count} searchable fields from the ALA.")     
+            except asyncio.TimeoutError:
+                await process.log("API took too long to respond. Consider refining your request to reduce response time.")
+                await context.reply("API took too long to respond. Consider refining your request to reduce response time.")
             except ConnectionError as e:
-                await process.log("Error during API request", data={"error": str(e)})
-                await context.reply(f"I encountered an error while fetching the index fields: {e}")
-
+                await process.log(f"Error during API request", data={"error": str(e)})
+                await context.reply(f"I encountered an error while trying to search for occurrences: {e}")
+    
     async def run_list_distributions(self, context, params: NoParams):
         """Workflow to list available spatial layers/distributions to users"""
         async with context.begin_process("Listing expert distributions") as process:
@@ -520,7 +537,10 @@ class ALAiChatBioAgent:
 
             try:
                 loop = asyncio.get_event_loop()
-                raw_response = await loop.run_in_executor(None, lambda: self.ala_logic.execute_request(api_url))
+                raw_response = await asyncio.wait_for(
+                    loop.run_in_executor(None, lambda: self.ala_logic.execute_request(api_url)),
+                    timeout=30.0
+                )
                 await process.log("Successfully retrieved BIE search data.")
 
                 # Extract information from the response
@@ -573,10 +593,13 @@ class ALAiChatBioAgent:
 
                 await context.reply(summary)
 
+            except asyncio.TimeoutError:
+                await process.log("API took too long to respond. Consider refining your request to reduce response time.")
+                await context.reply("API took too long to respond. Consider refining your request to reduce response time.")
             except ConnectionError as e:
-                await process.log("Error during API request", data={"error": str(e)})
-                await context.reply(f"I encountered an error while searching the BIE: {e}")
-
+                await process.log(f"Error during API request", data={"error": str(e)})
+                await context.reply(f"I encountered an error while trying to search for occurrences: {e}")
+    
     # async def run_filter_species_lists(self, context, params: SpeciesListFilterParams):
     #     """Workflow for filtering species lists by scientific names or data resource IDs"""
     #     filter_description = []
@@ -900,7 +923,7 @@ class UnifiedALAReActAgent(IChatBioAgent):
                     year=resolved.params.get('year'),
                     startdate=resolved.params.get('startdate'),
                     enddate=resolved.params.get('enddate'),
-                    pageSize=resolved.params.get('pageSize', 20),
+                    pageSize=resolved.params.get('pageSize', 1000),
                     start=resolved.params.get('start', 0)
                 )
                 
@@ -967,7 +990,7 @@ class UnifiedALAReActAgent(IChatBioAgent):
         ]
 
         # Execute agent
-        async with context.begin_process("Processing your biodiversity request") as process:
+        async with context.begin_process("Searching ALA API") as process:
             await process.log(f"Initializing ALA agent for query: '{request}' with {len(tools)} available tools")
             
             llm = ChatOpenAI(

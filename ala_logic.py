@@ -68,7 +68,7 @@ class OccurrenceSearchParams(BaseModel):
         ge=0
     )
     
-    pageSize: Optional[int] = Field(20,
+    pageSize: Optional[int] = Field(1000,
         description="Number of records to return per page",
         ge=1, le=1000
     )
@@ -288,7 +288,7 @@ class OccurrenceFacetsParams(BaseModel):
         ge=0
     )
     
-    pageSize: Optional[int] = Field(20,
+    pageSize: Optional[int] = Field(1000,
         description="The number of records per page",
         ge=1, le=1000
     )
@@ -405,7 +405,7 @@ class SpeciesBieSearchParams(BaseModel):
         ge=0, examples=[0, 10, 20]
     )
     
-    pageSize: Optional[int] = Field(5,
+    pageSize: Optional[int] = Field(100,
         description="The number of records to return",
         ge=1, le=100, examples=[5, 10, 20]
     )
@@ -1065,27 +1065,31 @@ class ALA:
     def execute_image_request(self, url: str) -> bytes:
         """Execute request for image data (PNG)."""
         try:
-            response = self.session.get(url, timeout=60)
+            response = self.session.get(url, timeout=30)
             response.raise_for_status()
             return response.content
         except requests.exceptions.RequestException as e:
             raise ConnectionError(f"Image request failed: {e}")    
         
     def execute_request(self, url: str) -> dict:
+        """Execute GET request and return JSON response."""
         try:
-            response = self.session.get(url, timeout=60)
+            response = self.session.get(url, timeout=30)
             response.raise_for_status()
             try:
                 return response.json()
             except ValueError:
                 raise ConnectionError(f"API response was not JSON. Response: {response.text[:200]}")
+        except requests.exceptions.Timeout:
+            raise ConnectionError("API took too long to respond. Consider refining your request to reduce response time.")
         except requests.exceptions.RequestException as e:
             raise ConnectionError(f"API request failed: {e}")
+
 
     def execute_post_request(self, url: str, data: dict) -> dict:
         """Execute POST request with JSON data."""
         try:
-            response = self.session.post(url, json=data, timeout=60)
+            response = self.session.post(url, json=data, timeout=30)
             response.raise_for_status()
             try:
                 return response.json()
