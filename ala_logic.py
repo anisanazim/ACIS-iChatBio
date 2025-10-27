@@ -623,17 +623,25 @@ class ALA:
         - "Find wombat records" → {"q": "wombat"} (no resolution needed)
         - "Kangaroo sightings" → {"q": "kangaroo"} (no resolution needed)
         
-        4. Only mark scientific_name as unresolved if:
+        4. PRESERVE FULL LSIDs: If the query contains a full LSID URL (https://biodiversity.org.au/afd/taxa/...), 
+        preserve it EXACTLY as-is in the 'q' parameter. DO NOT extract just the UUID part.
+        Examples:
+        - "Distribution of https://biodiversity.org.au/afd/taxa/00017b7e-89b3-4916-9c77-d4fbc74bdef6" 
+            → {"q": "https://biodiversity.org.au/afd/taxa/00017b7e-89b3-4916-9c77-d4fbc74bdef6"}
+        - "Spatial data for https://biodiversity.org.au/afd/taxa/12345-abcd-..." 
+            → {"q": "https://biodiversity.org.au/afd/taxa/12345-abcd-..."}
+        
+        5. Only mark scientific_name as unresolved if:
         - The query is complex/ambiguous
         - Multiple species might match
         - User specifically asks for scientific details
         - You genuinely cannot determine the species
         
-        5. Extract spatial parameters:
+        6. Extract spatial parameters:
         - "in Queensland" → fq=["state:Queensland"]
         - "New South Wales" → fq=["state:New South Wales"]
         
-        6. Extract taxonomic parameters:
+        7. Extract taxonomic parameters:
         - "family Macropodidae" → family="Macropodidae"
         - "genus Eucalyptus" → genus="Eucalyptus"
         

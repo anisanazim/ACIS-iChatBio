@@ -1005,9 +1005,21 @@ class UnifiedALAReActAgent(IChatBioAgent):
         async def get_species_distribution(query: str) -> str:
             """Get expert spatial distribution maps and data for a species or LSID."""
             try:
-                # Pass string directly to enhanced workflow method
-                await self.workflow_agent.run_get_distribution_by_lsid(context, query)
-                return f"Successfully processed spatial distribution request for '{query}'"
+                # Use enhanced parameter extraction
+                extracted = await self.workflow_agent.ala_logic._extract_params_enhanced(
+                    query, 
+                    ALASearchResponse
+                )
+                
+                # Use parameter resolver if needed
+                resolver = ALAParameterResolver(self.workflow_agent.ala_logic.ala_api_base_url)
+                resolved = await resolver.resolve_unresolved_params(extracted)
+                
+                # Pass the resolved 'q' parameter to workflow
+                query_param = resolved.params.get('q', query)
+                await self.workflow_agent.run_get_distribution_by_lsid(context, query_param)
+                
+                return f"Successfully processed spatial distribution request"
             except Exception as e:
                 return f"Error processing spatial distribution request: {str(e)}"
 
