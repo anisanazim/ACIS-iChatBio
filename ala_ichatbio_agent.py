@@ -176,23 +176,21 @@ class ALAiChatBioAgent:
     async def run_get_distribution_by_lsid(self, context, params):
         """Enhanced workflow for spatial distribution - supports both LSID params and string queries"""
         
-        # Handle dual input types
+        # Step 1: Determine input type and extract LSID
         if isinstance(params, str):
-            # String input - could be species name or LSID
             query = params
             
             if query.startswith("https://biodiversity.org.au/afd/taxa/"):
-                # Direct LSID input
-                lsid = query
-                species_name = f"species with LSID {lsid[-10:]}"
-                process_message = f"Searching ALA API"
+                # Direct LSID input - skip name lookup
+                lsid = query  # Use full URL as LSID
+                species_name = f"species with LSID {query.split('/')[-1]}"  # Extract UUID for display
                 
             else:
-                # Species name input - need LSID lookup
+                # Species name input - need LSID lookup first
                 species_name = query
-                process_message = f"Searching ALA API"
+                lsid = None  # Will be resolved below
                 
-                async with context.begin_process(process_message) as process:
+                async with context.begin_process("Searching ALA API") as process:
                     await process.log(f"Looking up LSID for '{species_name}'...")
                     
                     # LSID lookup step
@@ -226,15 +224,14 @@ class ALAiChatBioAgent:
         else:
             # Traditional SpatialDistributionByLsidParams object
             lsid = params.lsid
-            species_name = f"species with LSID {lsid[-10:]}"
-            process_message = f"Searching ALA API"
+            species_name = f"species with LSID {params.lsid.split('/')[-1]}"
 
-        # Common distribution fetching logic (works for both input types)
-        async with context.begin_process(process_message) as process:
+        # Step 2: Now we have an LSID - fetch spatial distribution (COMMON PATH)
+        async with context.begin_process("Searching ALA API") as process:
             await process.log(f"Fetching spatial distribution for LSID: {lsid}")
             
             api_url = self.ala_logic.build_spatial_distribution_by_lsid_url(lsid)
-            await process.log(f"Constructed API URL: {api_url}")
+            await process.log(f"Constructed spatial distribution URL: {api_url}")
             
             try:
                 loop = asyncio.get_event_loop()
