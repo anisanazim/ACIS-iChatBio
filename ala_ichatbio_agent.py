@@ -152,48 +152,127 @@ class ALAiChatBioAgent:
                 await process.log(f"Error during API request", data={"error": str(e)})
                 await context.reply(f"I encountered an error while trying to search for occurrences: {e}")
     
-    async def run_list_distributions(self, context, params: NoParams):
-        """Workflow to list available spatial layers/distributions to users"""
-        async with context.begin_process("Listing expert distributions") as process:
-            api_url = self.ala_logic.build_spatial_distributions_url()
-            await process.log(f"Constructed API URL: {api_url}")
-            try:
-                loop = asyncio.get_event_loop()
-                raw_response = await loop.run_in_executor(None, lambda: self.ala_logic.execute_request(api_url))
-                count = len(raw_response)
-                await process.log(f"Found {count} expert distributions.")
-                await process.create_artifact(
-                    mimetype="application/json",
-                    description=f"Raw JSON for {count} expert distributions.",
-                    uris=[api_url],
-                    content=json.dumps(raw_response).encode('utf-8'),
-                    metadata={"distribution_count": count}
-                    
-                )
-                await context.reply(f"I found {count} expert distributions. See the artifact for details.")
-            except ConnectionError as e:
-                await process.log("Error during API request", data={"error": str(e)})
-                await context.reply(f"Error listing expert distributions: {e}")
 
-    async def run_get_distribution_by_lsid(self, context, params: SpatialDistributionByLsidParams):
-        async with context.begin_process(f"Getting distribution for LSID '{params.lsid}'") as process:
-            api_url = self.ala_logic.build_spatial_distribution_by_lsid_url(params.lsid)
+    # async def run_get_distribution_by_lsid(self, context, params: SpatialDistributionByLsidParams):
+    #     async with context.begin_process(f"Getting distribution for LSID '{params.lsid}'") as process:
+    #         api_url = self.ala_logic.build_spatial_distribution_by_lsid_url(params.lsid)
+    #         await process.log(f"Constructed API URL: {api_url}")
+    #         try:
+    #             loop = asyncio.get_event_loop()
+    #             raw_response = await loop.run_in_executor(None, lambda: self.ala_logic.execute_request(api_url))
+    #             await process.log("Fetched distribution data.")
+    #             await process.create_artifact(
+    #                 mimetype="application/json",
+    #                 description=f"Raw JSON for distribution of LSID {params.lsid}.",
+    #                 uris=[api_url],
+    #                 content=json.dumps(raw_response).encode('utf-8'),
+    #                 metadata={"lsid": params.lsid}
+    #             )
+    #             await context.reply(f"Fetched distribution data for LSID '{params.lsid}'.")
+    #         except ConnectionError as e:
+    #             await process.log("Error during API request", data={"error": str(e)})
+    #             await context.reply(f"Error fetching distribution for LSID '{params.lsid}': {e}")
+
+    async def run_get_distribution_by_lsid(self, context, params):
+        """Enhanced workflow for spatial distribution - supports both LSID params and string queries"""
+        
+        # Handle dual input types
+        if isinstance(params, str):
+            # String input - could be species name or LSID
+            query = params
+            
+            if query.startswith("https://biodiversity.org.au/afd/taxa/"):
+                # Direct LSID input
+                lsid = query
+                species_name = f"species with LSID {lsid[-10:]}"
+                process_message = f"Searching ALA API"
+                
+            else:
+                # Species name input - need LSID lookup
+                species_name = query
+                process_message = f"Searching ALA API"
+                
+                async with context.begin_process(process_message) as process:
+                    await process.log(f"Looking up LSID for '{species_name}'...")
+                    
+                    # LSID lookup step
+                    guid_params = SpeciesGuidLookupParams(name=species_name)
+                    api_url = self.ala_logic.build_species_guid_lookup_url(guid_params)
+                    await process.log(f"Constructed GUID lookup URL: {api_url}")
+                    
+                    try:
+                        loop = asyncio.get_event_loop()
+                        guid_response = await asyncio.wait_for(
+                            loop.run_in_executor(None, lambda: self.ala_logic.execute_request(api_url)),
+                            timeout=30.0
+                        )
+                        
+                        if guid_response and isinstance(guid_response, list) and guid_response[0].get("guid"):
+                            lsid = guid_response[0]["guid"]
+                            await process.log(f"Found LSID: {lsid}")
+                        else:
+                            await process.log(f"No LSID found for '{species_name}'")
+                            await context.reply(f"Could not find distribution data for '{species_name}'. Please check the species name.")
+                            return
+                            
+                    except asyncio.TimeoutError:
+                        await process.log("API took too long to respond. Consider refining your request to reduce response time.")
+                        await context.reply("API took too long to respond. Consider refining your request to reduce response time.")
+                        return
+                    except ConnectionError as e:
+                        await process.log(f"Error during LSID lookup", data={"error": str(e)})
+                        await context.reply(f"Error looking up species identifier: {e}")
+                        return
+        else:
+            # Traditional SpatialDistributionByLsidParams object
+            lsid = params.lsid
+            species_name = f"species with LSID {lsid[-10:]}"
+            process_message = f"Searching ALA API"
+
+        # Common distribution fetching logic (works for both input types)
+        async with context.begin_process(process_message) as process:
+            await process.log(f"Fetching spatial distribution for LSID: {lsid}")
+            
+            api_url = self.ala_logic.build_spatial_distribution_by_lsid_url(lsid)
             await process.log(f"Constructed API URL: {api_url}")
+            
             try:
                 loop = asyncio.get_event_loop()
-                raw_response = await loop.run_in_executor(None, lambda: self.ala_logic.execute_request(api_url))
-                await process.log("Fetched distribution data.")
+                raw_response = await asyncio.wait_for(
+                    loop.run_in_executor(None, lambda: self.ala_logic.execute_request(api_url)),
+                    timeout=30.0
+                )
+                
+                await process.log("Successfully retrieved spatial distribution data")
+                
+                # Enhanced artifact creation
+                distribution_count = len(raw_response) if isinstance(raw_response, list) else 1
                 await process.create_artifact(
                     mimetype="application/json",
-                    description=f"Raw JSON for distribution of LSID {params.lsid}.",
+                    description=f"Expert spatial distribution data for {species_name} - {distribution_count} areas",
                     uris=[api_url],
                     content=json.dumps(raw_response).encode('utf-8'),
-                    metadata={"lsid": params.lsid}
+                    metadata={
+                        "species_name": species_name,
+                        "lsid": lsid,
+                        "data_type": "expert_spatial_distribution",
+                        "data_source": "ALA Spatial Service",
+                        "record_count": distribution_count
+                    }
                 )
-                await context.reply(f"Fetched distribution data for LSID '{params.lsid}'.")
+                
+                # Enhanced user response
+                summary = f"Successfully retrieved {distribution_count} expert spatial distribution area(s) for {species_name}. "
+                summary += "This data shows geographic areas where experts believe the species should occur based on ecological knowledge."
+                
+                await context.reply(summary)
+                
+            except asyncio.TimeoutError:
+                await process.log("API took too long to respond. Consider refining your request to reduce response time.")
+                await context.reply("API took too long to respond. Consider refining your request to reduce response time.")
             except ConnectionError as e:
                 await process.log("Error during API request", data={"error": str(e)})
-                await context.reply(f"Error fetching distribution for LSID '{params.lsid}': {e}")
+                await context.reply(f"Error fetching spatial distribution data: {e}")
 
     async def run_get_distribution_map(self, context, params: SpatialDistributionMapParams):
         async with context.begin_process(f"Getting distribution map image for imageId '{params.imageId}'") as process:
@@ -791,45 +870,7 @@ class ALAiChatBioAgent:
                 await process.log("Error during API request", data={"error": str(e)})
                 await context.reply(f"I encountered an error while retrieving distinct field values: {e}")
 
-    async def run_get_distribution_by_name(self, context, params: SpeciesGuidLookupParams):
-        """
-        Orchestrates the full workflow to get spatial distribution data for a species by its name.
-        """
-        species_name = params.name
-        async with context.begin_process(f"Getting spatial distribution for '{species_name}'") as process:
-
-            # --- STEP 1: Find the LSID for the species name ---
-            try:
-                await process.log(f"Looking up LSID for '{species_name}'...")
-                loop = asyncio.get_event_loop()
-                
-                guid_url = self.ala_logic.build_species_guid_lookup_url(params)
-                guid_response = await loop.run_in_executor(None, lambda: self.ala_logic.execute_request(guid_url))
-                
-                # Extract the first LSID (guid) from the response
-                if guid_response and isinstance(guid_response, list) and guid_response[0].get('guid'):
-                    lsid = guid_response[0]['guid']
-                    await process.log(f"Found LSID: {lsid}")
-                else:
-                    await context.reply(f"Sorry, I could not find a unique identifier (LSID) for '{species_name}'. Please try a different name.")
-                    return
-            except (ConnectionError, IndexError, KeyError) as e:
-                await process.log("Error during LSID lookup", data={"error": str(e)})
-                await context.reply(f"I encountered an error while trying to find an identifier for '{species_name}': {e}")
-                return
-
-            # --- STEP 2: Get the distribution data using the found LSID ---
-            try:
-                await process.log(f"Fetching distribution data for LSID: {lsid}")
-                distribution_params = SpatialDistributionByLsidParams(lsid=lsid)
-                # Re-use the existing agent method for this step
-                await self.run_get_distribution_by_lsid(context, distribution_params)
-
-            except Exception as e:
-                # The run_get_distribution_by_lsid method already handles its own errors and replies.
-                await process.log("Error during distribution data fetch", data={"error": str(e)})
-
-
+    
 class UnifiedALAReActAgent(IChatBioAgent):
     """Unified ALA agent using LangChain ReAct pattern"""
     
@@ -964,21 +1005,14 @@ class UnifiedALAReActAgent(IChatBioAgent):
                     return f"Error looking up species info: {str(e)}"
 
         @tool
-        async def get_species_distribution(species_name: str) -> str:
-            """Get species distribution maps and data."""
-            async with context.begin_process(f"Fetching distribution for {species_name}") as process:
-                try:
-                    await process.log(f"Searching for distribution data for {species_name}")
-                    await self.workflow_agent.run_get_distribution_by_name(
-                        context, 
-                        SpeciesGuidLookupParams(name=species_name)
-                    )
-                    await process.log(f"Successfully retrieved distribution data for {species_name}")
-                    return f"Found spatial distribution and geographic range data for {species_name}"
-                    
-                except Exception as e:
-                    await process.log(f"Error fetching distribution: {str(e)}")
-                    return f"Error fetching distribution: {str(e)}"
+        async def get_species_distribution(query: str) -> str:
+            """Get expert spatial distribution maps and data for a species or LSID."""
+            try:
+                # Pass string directly to enhanced workflow method
+                await self.workflow_agent.run_get_distribution_by_lsid(context, query)
+                return f"Successfully processed spatial distribution request for '{query}'"
+            except Exception as e:
+                return f"Error processing spatial distribution request: {str(e)}"
 
         tools = [
             search_species_occurrences,

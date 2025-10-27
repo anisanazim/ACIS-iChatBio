@@ -1002,8 +1002,6 @@ class ALA:
         query_string = urlencode(query_params, quote_via=requests.utils.quote)
         return f"{self.ala_api_base_url}/species/search?{query_string}" 
    
-    def build_spatial_distributions_url(self):
-        return f"{self.ala_api_base_url}/spatial-service/distributions"
 
     def build_spatial_distribution_by_lsid_url(self, lsid: str):
         # The API expects the LSID to be URL-encoded
