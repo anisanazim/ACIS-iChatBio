@@ -799,7 +799,10 @@ class ALAiChatBioAgent:
                 if guid_response and isinstance(guid_response, list) and len(guid_response) > 0:
                     first_match = guid_response[0]
                     if isinstance(first_match, dict) and first_match.get("guid"):
-                        lsid = first_match["guid"]
+                        lsid = (
+                            first_match.get("acceptedIdentifier") or
+                            first_match.get("identifier")
+                        ) 
                         await process.log(f"Found LSID: {lsid}")
                         return lsid
                 
@@ -986,7 +989,6 @@ class UnifiedALAReActAgent(IChatBioAgent):
             async with context.begin_process(f"Searching ALA for: '{user_query}'") as process:
                 
                 try:
-                    # ✅ CLEANER: Use wrapper method
                     extracted = await self.workflow_agent.ala_logic.extract_params(
                         user_query=user_query,
                         response_model=ALASearchResponse
