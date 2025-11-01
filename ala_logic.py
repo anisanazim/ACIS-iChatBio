@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field, field_validator
 from typing import Optional, List, Dict, Any
 from urllib.parse import urlencode
 import cloudscraper
+from parameter_extractor import extract_params_from_query, ALASearchResponse
 
 from functools import cache
 import requests
@@ -558,33 +559,6 @@ class SpeciesListDistinctFieldParams(BaseModel):
 from pydantic import BaseModel, Field, field_validator
 from typing import List, Optional, Dict, Any
 
-class ALASearchResponse(BaseModel):
-    params: Dict[str, Any] = Field(description="Extracted API parameters")
-    unresolved_params: List[str] = Field(default=[], description="Parameters needing clarification")
-    clarification_needed: bool = Field(default=False, description="Whether clarification is required")
-    clarification_reason: str = Field(default="", description="Why clarification is needed")
-    artifact_description: str = Field(default="", description="Description of expected results")
-    
-    @field_validator('params')
-    @classmethod
-    def validate_params(cls, v, info):
-        # Get original query from context if available
-        context = info.context or {}
-        original_query = context.get('original_query', '')
-        
-        # Check for temporal keywords
-        temporal_keywords = ['before', 'after', 'since', 'between', 'in', 'during']
-        has_temporal = any(keyword in original_query.lower() for keyword in temporal_keywords)
-        
-        if has_temporal:
-            # Check if any temporal parameter exists
-            temporal_params = ['year', 'startdate', 'enddate']
-            has_temporal_param = any(param in v for param in temporal_params)
-            
-            if not has_temporal_param:
-                raise ValueError(f"Temporal query detected ('{original_query}') but no temporal parameters extracted. Must include year, startdate, or enddate.")
-                
-        return v
 
 class ALA:
     def __init__(self): 
@@ -598,6 +572,14 @@ class ALA:
             'Accept-Language': 'en-US,en;q=0.9',
         })
 
+    async def extract_params(self, user_query: str, response_model=ALASearchResponse):
+        """Wrapper for parameter extraction"""
+        return await extract_params_from_query(
+            openai_client=self.openai_client,
+            user_query=user_query,
+            response_model=response_model
+        )
+    
     def _get_config_value(self, key: str, default: Optional[str] = None) -> Optional[str]:
         value = os.getenv(key)
         if value is None and os.path.exists('env.yaml'):
@@ -605,170 +587,7 @@ class ALA:
                 value = (yaml.safe_load(f) or {}).get(key, default)
         return value if value is not None else default
 
-    async def _extract_params_enhanced(self, user_query: str, response_model=ALASearchResponse):
-        system_prompt = """
-        You are an assistant that extracts search parameters for the Atlas of Living Australia (ALA) API.
-        
-        CRITICAL RULES:
-        1. Extract ALL relevant parameters from the user query - taxonomic, spatial, AND temporal
-        2. For temporal queries, ALWAYS extract year/date parameters:
-        - "before 2018" → year="<2018"
-        - "after 2020" → year="2020+"  
-        - "between 2010 and 2020" → year="2010,2020"
-        - "in 2021" → year="2021"
-        - "since 2015" → year="2015+"
-        
-        3. For simple occurrence queries with common names, you can proceed WITHOUT scientific name resolution:
-        - "Show me koala occurrences" → {"q": "koala"} (no resolution needed)
-        - "Find wombat records" → {"q": "wombat"} (no resolution needed)
-        - "Kangaroo sightings" → {"q": "kangaroo"} (no resolution needed)
-        
-        4. PRESERVE FULL LSIDs: If the query contains a full LSID URL (https://biodiversity.org.au/afd/taxa/...), 
-        preserve it EXACTLY as-is in the 'q' parameter. DO NOT extract just the UUID part.
-        Examples:
-        - "Distribution of https://biodiversity.org.au/afd/taxa/00017b7e-89b3-4916-9c77-d4fbc74bdef6" 
-            → {"q": "https://biodiversity.org.au/afd/taxa/00017b7e-89b3-4916-9c77-d4fbc74bdef6"}
-        - "Spatial data for https://biodiversity.org.au/afd/taxa/12345-abcd-..." 
-            → {"q": "https://biodiversity.org.au/afd/taxa/12345-abcd-..."}
-        
-        5. Only mark scientific_name as unresolved if:
-        - The query is complex/ambiguous
-        - Multiple species might match
-        - User specifically asks for scientific details
-        - You genuinely cannot determine the species
-        
-        6. Extract spatial parameters:
-        - "in Queensland" → fq=["state:Queensland"]
-        - "New South Wales" → fq=["state:New South Wales"]
-        
-        7. Extract taxonomic parameters:
-        - "family Macropodidae" → family="Macropodidae"
-        - "genus Eucalyptus" → genus="Eucalyptus"
-        
-        EXAMPLES:
-        Query: "Show me koala occurrences in Australia"
-        Response: {
-            "params": {
-                "q": "koala"
-            },
-            "unresolved_params": [],
-            "clarification_needed": false,
-            "clarification_reason": "",
-            "artifact_description": "Koala occurrence records in Australia"
-        }
-        
-        Query: "Koala sightings in New South Wales before 2018"
-        Response: {
-            "params": {
-                "q": "koala",
-                "fq": ["state:New South Wales"],
-                "year": "<2018"
-            },
-            "unresolved_params": [],
-            "clarification_needed": false,
-            "clarification_reason": "",
-            "artifact_description": "Koala occurrence records in New South Wales before 2018"
-        }
-        
-        Query: "Species in family Macropodidae recorded after 2019"
-        Response: {
-            "params": {
-                "family": "Macropodidae",
-                "year": "2019+"
-            },
-            "unresolved_params": [],
-            "clarification_needed": false,
-            "clarification_reason": "",
-            "artifact_description": "Records of the family Macropodidae since 2020"
-        }
-        """
-        
-        try:
-            return await self.openai_client.chat.completions.create(
-                model="gpt-4o-mini", 
-                response_model=response_model,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": f"Extract parameters from: {user_query}"}
-                ],
-                temperature=0,
-                max_retries=3,
-                validation_context={"original_query": user_query}  # Pass query for validation
-            )
-        except Exception as e:
-            raise ValueError(f"Failed to extract parameters: {e}")
     
-    async def convert_species_to_guids(self, names: List[str]) -> Dict[str, str]:
-        guid_map = {}
-        for name in names:
-            try:
-                params = SpeciesGuidLookupParams(name=name)
-                url = self.build_species_guid_lookup_url(params)
-                result = self.execute_request(url)
-                guid = None
-                if isinstance(result, list):
-                    for entry in result:
-                        if isinstance(entry, dict):
-                            guid = (
-                                entry.get('taxonConceptID') or
-                                entry.get('guid') or
-                                entry.get('acceptedIdentifier') or
-                                entry.get('identifier')
-                            )
-                            if guid:
-                                break
-                elif isinstance(result, dict):
-                    guid = (
-                        result.get('taxonConceptID') or
-                        result.get('guid') or
-                        result.get('acceptedIdentifier') or
-                        result.get('identifier')
-                    )
-                
-                if guid and guid.startswith("https://biodiversity.org.au/afd/taxa/"):
-                    lsid = "urn:lsid:biodiversity.org.au:afd.taxon:" + guid.rsplit("/", 1)[-1]
-                    guid_map[name] = lsid
-                elif guid:
-                    guid_map[name] = guid
-                else:
-                    print(f"Warning: No GUID found for '{name}' in API response: {result}")
-            except Exception as e:
-                print(f"Warning: Could not find GUID for '{name}'. Skipping. Error: {e}")
-        return guid_map
-
-    async def get_taxa_counts(self, params: TaxaCountHelper) -> dict:
-        """
-        Orchestrates getting taxa counts from user-friendly names.
-        """
-        names_to_lookup = (params.species_names or []) + (params.common_names or [])
-        if not names_to_lookup:
-            raise ValueError("You must provide at least one species or common name.")
-
-        # Step 1: Call the worker function to convert names to GUIDs
-        guid_map = await self.convert_species_to_guids(names_to_lookup)
-        
-        all_guids = list(guid_map.values())
-        if not all_guids:
-            raise ValueError("Could not resolve any of the provided names to a valid GUID.")
-
-        # Step 2: Construct filter queries (fq)
-        fq_filters = []
-        if params.state:
-            fq_filters.append(f"state:{params.state}")
-        if params.year:
-            fq_filters.append(f"year:{params.year}")
-        if params.basis_of_record:
-            fq_filters.append(f"basis_of_record:{params.basis_of_record}")
-
-        # Step 3: Build the final parameters for the API call
-        taxa_count_params = OccurrenceTaxaCountParams(
-            guids="\n".join(all_guids),
-            fq=fq_filters if fq_filters else None
-        )
-        print("DEBUG fq param:", fq_filters, type(fq_filters))
-        # Step 4: Build the URL and execute the request
-        url = self.build_occurrence_taxa_count_url(taxa_count_params)
-        return self.execute_request(url), url
  
     def build_occurrence_url(self, params: OccurrenceSearchParams) -> str:
         """Build occurrence search URL"""
