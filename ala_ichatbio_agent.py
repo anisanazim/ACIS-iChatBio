@@ -796,24 +796,50 @@ class ALAiChatBioAgent:
                     timeout=30.0
                 )
                 
+                # 🔍 DEBUG: Log the raw response
+                await process.log(f"🔍 DEBUG: Raw API response type: {type(guid_response)}")
+                await process.log(f"🔍 DEBUG: Raw API response: {json.dumps(guid_response, indent=2) if guid_response else 'None'}")
+                
                 if guid_response and isinstance(guid_response, list) and len(guid_response) > 0:
+                    await process.log(f"🔍 DEBUG: Response is a list with {len(guid_response)} items")
+                    
                     first_match = guid_response[0]
-                    if isinstance(first_match, dict) and first_match.get("guid"):
+                    await process.log(f"🔍 DEBUG: First match type: {type(first_match)}")
+                    await process.log(f"🔍 DEBUG: First match keys: {first_match.keys() if isinstance(first_match, dict) else 'Not a dict'}")
+                    
+                    if isinstance(first_match, dict):
+                        await process.log(f"🔍 DEBUG: First match data: {json.dumps(first_match, indent=2)}")
+                        
+                        # Try multiple field names
                         lsid = (
                             first_match.get("acceptedIdentifier") or
-                            first_match.get("identifier")
-                        ) 
-                        await process.log(f"Found LSID: {lsid}")
-                        return lsid
+                            first_match.get("identifier") or
+                            first_match.get("guid") or
+                            first_match.get("taxonConceptID")
+                        )
+                        
+                        await process.log(f"🔍 DEBUG: Extracted LSID: {lsid}")
+                        
+                        if lsid:
+                            await process.log(f"✓ Found LSID: {lsid}")
+                            return lsid
+                        else:
+                            await process.log("✗ No LSID field found in first match")
+                    else:
+                        await process.log("✗ First match is not a dictionary")
+                else:
+                    await process.log(f"✗ Response check failed - is_list: {isinstance(guid_response, list)}, has_items: {len(guid_response) > 0 if isinstance(guid_response, list) else False}")
                 
-                await process.log(f"No LSID found for '{species_name}'")
+                await process.log(f"✗ No LSID found for '{species_name}'")
                 return None
                 
             except asyncio.TimeoutError:
-                await process.log("LSID lookup timed out")
+                await process.log("⚠ LSID lookup timed out")
                 return None
             except Exception as e:
-                await process.log(f" Error during LSID lookup: {e}")
+                await process.log(f"✗ Error during LSID lookup: {e}")
+                import traceback
+                await process.log(f"🔍 DEBUG: Full traceback: {traceback.format_exc()}")
                 return None
 
     async def _fetch_distribution_data(self, context, lsid: str, species_name: str) -> Dict:
