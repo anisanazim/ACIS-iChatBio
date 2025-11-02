@@ -1242,6 +1242,7 @@ class UnifiedALAReActAgent(IChatBioAgent):
 
     Available Tools:
     - search_species_occurrences: Find where species have been observed in Australia, filter by year, location, or other occurrence-level attributes
+    - get_occurrence_breakdown: Get analytical breakdowns and insights from occurrence data (facets, statistics, distributions)
     - get_species_images: Retrieve photos and images of species
     - lookup_species_info: Get comprehensive species profiles, taxonomy, and metadata (BIE search)
     - get_species_distribution: Get distribution maps and geographic data
@@ -1256,6 +1257,17 @@ class UnifiedALAReActAgent(IChatBioAgent):
     - For occurrence queries (records, sightings, observations, "where", "when", "how many"):
     → Use search_species_occurrences
     → Examples: "Show koala occurrences", "Find records in Queensland", "Sightings after 2020"
+
+    - For data analysis and breakdowns (analytical insights, statistics, "breakdown by", "distribution across"):
+    → Use get_occurrence_breakdown  
+    → Examples: 
+    • "What kingdoms are found within 10km of Brisbane?"
+    • "Break down koala records by state"
+    • "Show me the top 5 species near Sydney"
+    • "Which animal classes are most common around Melbourne?"
+    • "List major collecting institutions in Victoria"
+    • "Analyze wombat data by year"
+    • "How many species in each family?"
 
     - For taxonomy queries (classification, "what family", "scientific name", species information):
     → Use lookup_species_info  
@@ -1276,19 +1288,28 @@ class UnifiedALAReActAgent(IChatBioAgent):
     • "Expert distribution maps for bilby"
     • "Predicted occurrence areas for echidna"
 
-    IMPORTANT DISTRIBUTION NOTES:
-    - Supports both species names ("Tasmanian Devil") AND direct LSID URLs
-    - Returns expert distribution AREAS/POLYGONS (not individual sightings)
-    - Automatically displays up to 3 distribution maps with direct image URLs
-    - Provides expert predictions based on habitat modeling and ecological knowledge
+    IMPORTANT NOTES:
+    - **Distribution Tool**: Returns expert distribution AREAS/POLYGONS (not individual sightings), supports species names AND LSID URLs, displays up to 3 maps with direct URLs
+    - **Breakdown Tool**: Provides analytical facets and statistics, handles spatial analysis (city coordinates), supports complex queries with filters
     - For actual observation records, use search_species_occurrences instead
 
     QUERY INTERPRETATION:
-    - "Show me [species] occurrences" = occurrence search (NOT taxonomy)
-    - "Find [species] records" = occurrence search (NOT taxonomy)  
-    - "[Species] sightings" = occurrence search (NOT taxonomy)
+    - "Show me [species] occurrences" = occurrence search (NOT breakdown)
+    - "Find [species] records" = occurrence search (NOT breakdown)  
+    - "[Species] sightings" = occurrence search (NOT breakdown)
+    - "Break down [species] by [category]" = occurrence breakdown (NOT search)
+    - "Analyze [species] data" = occurrence breakdown (NOT search)
+    - "What kingdoms are found near [city]?" = occurrence breakdown (NOT search)
+    - "Top X species in [location]" = occurrence breakdown (NOT search)
     - "What is [species]?" = taxonomy search (NOT occurrence)
     - "Tell me about [species]" = taxonomy search (NOT occurrence)
+    - "Where do [species] live?" = distribution search (NOT occurrences)
+
+    For breakdown queries specifically:
+    - Call get_occurrence_breakdown ONCE
+    - Present the analytical results, facets, and statistics
+    - Include any spatial/temporal insights from the analysis
+    - Call finish() immediately - DO NOT retry the search
 
     For distribution queries specifically:
     - Call get_species_distribution ONCE
