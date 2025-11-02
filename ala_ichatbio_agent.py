@@ -867,7 +867,7 @@ class ALAiChatBioAgent:
                     timeout=30.0
                 )
                 
-                await process.log("✓ Successfully retrieved distribution data")
+                await process.log(" Successfully retrieved distribution data")
                 
                 # Calculate statistics
                 distribution_count = len(raw_response) if isinstance(raw_response, list) else 1
@@ -875,31 +875,85 @@ class ALAiChatBioAgent:
                 # Extract imageIds from response
                 image_ids = []
                 if isinstance(raw_response, list):
-                    for area in raw_response:
-                        if isinstance(area, dict) and area.get('imageId'):
-                            image_ids.append(str(area['imageId']))
-                
+                    for distribution in raw_response:
+                        if isinstance(distribution, dict):
+                            geom_idx = distribution.get('geom_idx')
+                            if geom_idx:
+                                image_ids.append(str(geom_idx))
+
                 # Create artifact
                 await process.create_artifact(
                     mimetype="application/json",
-                    description=f"Expert spatial distribution for {species_name} - {distribution_count} area(s)",
+                    description=f"Expert spatial distribution data for {species_name} - {distribution_count} areas",
                     uris=[api_url],
-                    content=json.dumps(raw_response, indent=2).encode('utf-8'),
+                    content=json.dumps(raw_response).encode('utf-8'),
                     metadata={
                         "species_name": species_name,
                         "lsid": lsid,
                         "data_type": "expert_spatial_distribution",
                         "data_source": "ALA Spatial Service",
                         "record_count": distribution_count,
-                        "image_ids": image_ids
+                        "image_ids": image_ids,
+                        "image_urls": [dist.get('imageUrl') for dist in raw_response if isinstance(dist, dict) and dist.get('imageUrl')],
+                        "retrieval_date": datetime.now().strftime("%Y-%m-%d %H:%M")
                     }
                 )
+
+                # Enhanced: Display distribution images and provide URLs
+                image_info = []  
+                displayed_images = 0
                 
-                # User feedback
-                summary = f"✓ Retrieved {distribution_count} expert distribution area(s) for {species_name}. "
-                summary += "This data shows geographic areas where experts believe the species should occur."
+                if image_ids:
+                    await process.log(f"Processing {len(image_ids)} distribution map(s)")
+                    
+                    for i, distribution in enumerate(raw_response):
+                        if isinstance(distribution, dict):
+                            geom_idx = distribution.get('geom_idx')
+                            image_url = distribution.get('imageUrl')
+                            area_name = distribution.get('area_name', f'Distribution Area {i+1}')
+                            
+                            if geom_idx and image_url:
+                                image_info.append({
+                                    'id': str(geom_idx),
+                                    'url': image_url,
+                                    'name': area_name
+                                })
+                                
+                                # Display images directly in chat (limit to 3 for performance)
+                                if displayed_images < 3:
+                                    try:
+                                        image_params = SpatialDistributionMapParams(imageId=str(geom_idx))
+                                        await self.run_get_distribution_map(context, image_params)
+                                        displayed_images += 1
+                                        await process.log(f"✓ Displayed distribution map: {area_name}")
+                                    except Exception as e:
+                                        await process.log(f"Failed to display image {geom_idx}: {e}")
+                
+                # Enhanced user response with image information
+                summary = f"Successfully retrieved {distribution_count} expert spatial distribution area(s) for {species_name}. "
+                summary += "This data shows geographic areas where experts believe the species should occur based on ecological knowledge.\n\n"
+
+                if image_info:
+                    summary += f"**Distribution Maps Available ({len(image_info)} total):**\n"
+                    
+                    # Show displayed images
+                    if displayed_images > 0:
+                        summary += f" {displayed_images} map(s) displayed above\n"
+                    
+                    # Provide URLs for all images
+                    summary += "\n**Direct Image URLs:**\n"
+                    for img in image_info:
+                        summary += f"• **{img['name']}**: {img['url']}\n"
+                    
+                    # Show remaining if more than 3
+                    if len(image_info) > 3:
+                        summary += f"\n Showing first 3 images. {len(image_info) - 3} additional map(s) available via URLs above."
+                else:
+                    summary += "\n No distribution map images are available for this species."
+
                 await context.reply(summary)
                 
+                # Return success case INSIDE try block
                 return {
                     "success": True,
                     "species_name": species_name,
@@ -908,12 +962,12 @@ class ALAiChatBioAgent:
                     "image_ids": image_ids,
                     "data": raw_response
                 }
-                
+
             except asyncio.TimeoutError:
-                await process.log("⚠ Distribution API timed out")
+                await process.log("✗ Distribution API timed out")
                 await context.reply("API timeout - try again later or refine your request")
                 return {"success": False, "error": "timeout"}
-                
+                    
             except Exception as e:
                 await process.log(f"✗ Error fetching distribution: {e}")
                 await context.reply(f"Error fetching distribution data: {e}")
@@ -1053,10 +1107,6 @@ class UnifiedALAReActAgent(IChatBioAgent):
                 occurrence_params = OccurrenceSearchParams(
                     q=resolved.params.get('q', '*'),
                     fq=fq_filters, 
-                    # q=resolved.params.get('fq', []), 
-                    # family=resolved.params.get('family'),        
-                    # genus=resolved.params.get('genus'),          
-                    # species=resolved.params.get('species'), 
                     year=resolved.params.get('year'),
                     startdate=resolved.params.get('startdate'),
                     enddate=resolved.params.get('enddate'),
