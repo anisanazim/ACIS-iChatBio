@@ -21,7 +21,7 @@ class ALASearchResponse(BaseModel):
         original_query = context.get('original_query', '')
         
         # Check for temporal keywords
-        temporal_keywords = ['before', 'after', 'since', 'between', 'in', 'during']
+        temporal_keywords = ['before', 'after', 'since', 'between', 'during']
         has_temporal = any(keyword in original_query.lower() for keyword in temporal_keywords)
         
         if has_temporal:

@@ -795,22 +795,11 @@ class ALAiChatBioAgent:
                     loop.run_in_executor(None, lambda: self.ala_logic.execute_request(api_url)),
                     timeout=30.0
                 )
-                
-                # 🔍 DEBUG: Log the raw response
-                await process.log(f"🔍 DEBUG: Raw API response type: {type(guid_response)}")
-                await process.log(f"🔍 DEBUG: Raw API response: {json.dumps(guid_response, indent=2) if guid_response else 'None'}")
-                
                 if guid_response and isinstance(guid_response, list) and len(guid_response) > 0:
-                    await process.log(f"🔍 DEBUG: Response is a list with {len(guid_response)} items")
-                    
                     first_match = guid_response[0]
-                    await process.log(f"🔍 DEBUG: First match type: {type(first_match)}")
-                    await process.log(f"🔍 DEBUG: First match keys: {first_match.keys() if isinstance(first_match, dict) else 'Not a dict'}")
                     
                     if isinstance(first_match, dict):
-                        await process.log(f"🔍 DEBUG: First match data: {json.dumps(first_match, indent=2)}")
-                        
-                        # Try multiple field names
+                        # Try multiple field names for LSID extraction
                         lsid = (
                             first_match.get("acceptedIdentifier") or
                             first_match.get("identifier") or
@@ -818,28 +807,24 @@ class ALAiChatBioAgent:
                             first_match.get("taxonConceptID")
                         )
                         
-                        await process.log(f"🔍 DEBUG: Extracted LSID: {lsid}")
-                        
                         if lsid:
-                            await process.log(f"✓ Found LSID: {lsid}")
+                            await process.log(f"Found LSID: {lsid}")
                             return lsid
                         else:
-                            await process.log("✗ No LSID field found in first match")
+                            await process.log("No LSID field found in species data")
                     else:
-                        await process.log("✗ First match is not a dictionary")
+                        await process.log("Invalid response format from species lookup")
                 else:
-                    await process.log(f"✗ Response check failed - is_list: {isinstance(guid_response, list)}, has_items: {len(guid_response) > 0 if isinstance(guid_response, list) else False}")
-                
-                await process.log(f"✗ No LSID found for '{species_name}'")
+                    await process.log("No species data returned from API")
+
+                await process.log(f"No LSID found for '{species_name}'")
                 return None
-                
+
             except asyncio.TimeoutError:
-                await process.log("⚠ LSID lookup timed out")
+                await process.log(" LSID lookup timed out")
                 return None
             except Exception as e:
-                await process.log(f"✗ Error during LSID lookup: {e}")
-                import traceback
-                await process.log(f"🔍 DEBUG: Full traceback: {traceback.format_exc()}")
+                await process.log(f" Error during LSID lookup: {e}")
                 return None
 
     async def _fetch_distribution_data(self, context, lsid: str, species_name: str) -> Dict:
@@ -869,9 +854,6 @@ class ALAiChatBioAgent:
                 
                 await process.log(" Successfully retrieved distribution data")
                 
-                # Calculate statistics
-                distribution_count = len(raw_response) if isinstance(raw_response, list) else 1
-                
                 # Extract imageIds from response
                 image_ids = []
                 if isinstance(raw_response, list):
@@ -881,6 +863,9 @@ class ALAiChatBioAgent:
                             if geom_idx:
                                 image_ids.append(str(geom_idx))
 
+                # Calculate statistics
+                distribution_count = len(raw_response) if isinstance(raw_response, list) else 1
+                
                 # Create artifact
                 await process.create_artifact(
                     mimetype="application/json",
@@ -1271,7 +1256,7 @@ class UnifiedALAReActAgent(IChatBioAgent):
     - Automatically displays up to 3 distribution maps with direct image URLs
     - Provides expert predictions based on habitat modeling and ecological knowledge
     - For actual observation records, use search_species_occurrences instead
-    
+
     QUERY INTERPRETATION:
     - "Show me [species] occurrences" = occurrence search (NOT taxonomy)
     - "Find [species] records" = occurrence search (NOT taxonomy)  
