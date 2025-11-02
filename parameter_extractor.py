@@ -79,11 +79,15 @@ CRITICAL RULES:
    - "family Macropodidae" -> family="Macropodidae"
    - "genus Eucalyptus" -> genus="Eucalyptus"
 
-8. FACET ANALYSIS EXTRACTION:
-   - Detect breakdown/analysis queries and extract appropriate facets
-   - "breakdown by [field]" -> facets=["field"] 
-   - "distribution across [field]" -> facets=["field"]
-   - "analyze by [category]" -> facets=["category"]
+8. FACET ANALYSIS DETECTION & EXTRACTION:
+   TRIGGER WORDS for facet analysis:
+   - "breakdown", "break down", "distribution", "analyze", "analysis"
+   - "which [categories]", "what [types]", "how many", "show me", "list"
+   - "most common", "top X", "major", "types of"
+   - "groups", "which groups", "what groups"  
+
+   FACET FIELD MAPPING:
+   - "kingdom/kingdoms/groups/taxa/types/species groups" -> facets=["kingdom"] 
 
    FACET FIELD MAPPING:
    - "kingdom/kingdoms/groups" -> facets=["kingdom"]
