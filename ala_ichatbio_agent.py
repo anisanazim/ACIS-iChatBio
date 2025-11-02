@@ -173,7 +173,6 @@ class ALAiChatBioAgent:
                 await context.reply(f"Error fetching PNG map image for imageId '{params.imageId}': {e}")
 
     async def run_get_occurrence_facets(self, context, params: OccurrenceFacetsParams):
-        
         """Workflow for getting occurrence facet information - data breakdowns and insights"""
         query_description = []
         if params.q:
@@ -193,9 +192,17 @@ class ALAiChatBioAgent:
 
             try:
                 loop = asyncio.get_event_loop()
-                raw_response = await loop.run_in_executor(None, lambda: self.ala_logic.execute_request(api_url))
+                raw_response = await asyncio.wait_for(
+                    loop.run_in_executor(None, lambda: self.ala_logic.execute_request(api_url)),
+                    timeout=30.0
+                )
                 
-                await process.log("Successfully retrieved facet data.")
+                await process.log(" Successfully retrieved facet data")
+                
+                # Debug the response structure
+                await process.log(f"Response type: {type(raw_response)}")
+                if hasattr(raw_response, '__len__'):
+                    await process.log(f"Response length: {len(raw_response)}")
                 
                 # Extract key insights from facet response
                 facet_fields = []
@@ -208,38 +215,53 @@ class ALAiChatBioAgent:
                 else:
                     facet_results = []
 
-                    for facet in facet_results:
+                for facet in facet_results:
+                    if isinstance(facet, dict):
                         field_name = facet.get('fieldName', 'Unknown')
                         field_result = facet.get('fieldResult', [])
                         facet_count = len(field_result)
                         facet_fields.append(f"{field_name} ({facet_count} values)")
                         total_facets += facet_count
+                        
+                        await process.log(f"Processed facet '{field_name}': {facet_count} values")
+                
+                await process.log(f"Total facet fields processed: {len(facet_fields)}")
+                await process.log(f"Total facet values: {total_facets}")
                 
                 await process.create_artifact(
                     mimetype="application/json",
                     description=f"Occurrence facet data breakdown - {total_facets} total facet values across {len(facet_fields)} fields",
                     uris=[api_url],
+                    content=json.dumps(raw_response).encode('utf-8'),  
                     metadata={
                         "data_source": "ALA Occurrence Facets", 
                         "facet_fields": len(facet_fields),
                         "total_facet_values": total_facets,
-                        "search_context": search_context.strip()
+                        "search_context": search_context.strip(),
+                        "retrieval_date": datetime.now().strftime("%Y-%m-%d %H:%M")
                     }
                 )
                 
                 if facet_fields:
-                    summary = f"Retrieved data breakdown with {total_facets} facet values across {len(facet_fields)} categories: {', '.join(facet_fields[:3])}"
+                    summary = f"Found {total_facets} facet values across {len(facet_fields)} categories: {', '.join(facet_fields[:3])}"
                     if len(facet_fields) > 3:
                         summary += f" and {len(facet_fields) - 3} more"
                     summary += "."
                 else:
-                    summary = "Retrieved facet data breakdown from the occurrence database."
+                    summary = "No facet data found - this may indicate no matching records or an API issue."
                 
                 await context.reply(summary)
 
+            except asyncio.TimeoutError:
+                await process.log("✗ Facet API timeout (30s)")
+                await context.reply("Facet analysis timed out. Try a more specific query or try again later.")
             except ConnectionError as e:
                 await process.log("Error during API request", data={"error": str(e)})
                 await context.reply(f"I encountered an error while retrieving occurrence facet data: {e}")
+            except Exception as e:
+                await process.log(f"Unexpected error: {e}")
+                await context.reply(f"An unexpected error occurred during facet analysis: {e}")
+
 
     async def run_get_occurrence_taxa_count(self, context, params: OccurrenceTaxaCountParams):
         """Workflow for getting occurrence counts for specific taxa"""
