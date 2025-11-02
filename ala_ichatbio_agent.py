@@ -200,9 +200,9 @@ class ALAiChatBioAgent:
                 await process.log(" Successfully retrieved facet data")
                 
                 # Debug the response structure
-                await process.log(f"Response type: {type(raw_response)}")
-                if hasattr(raw_response, '__len__'):
-                    await process.log(f"Response length: {len(raw_response)}")
+                # await process.log(f"Response type: {type(raw_response)}")
+                # if hasattr(raw_response, '__len__'):
+                #     await process.log(f"Response length: {len(raw_response)}")
                 
                 # Extract key insights from facet response
                 facet_fields = []
@@ -223,9 +223,9 @@ class ALAiChatBioAgent:
                         facet_fields.append(f"{field_name} ({facet_count} values)")
                         total_facets += facet_count
                         
-                        await process.log(f"Processed facet '{field_name}': {facet_count} values")
+                        # await process.log(f"Processed facet '{field_name}': {facet_count} values")
                 
-                await process.log(f"Total facet fields processed: {len(facet_fields)}")
+                
                 await process.log(f"Total facet values: {total_facets}")
                 
                 await process.create_artifact(
@@ -253,7 +253,7 @@ class ALAiChatBioAgent:
                 await context.reply(summary)
 
             except asyncio.TimeoutError:
-                await process.log("✗ Facet API timeout (30s)")
+                await process.log(" Facet API timeout (30s)")
                 await context.reply("Facet analysis timed out. Try a more specific query or try again later.")
             except ConnectionError as e:
                 await process.log("Error during API request", data={"error": str(e)})
