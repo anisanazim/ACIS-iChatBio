@@ -79,6 +79,46 @@ CRITICAL RULES:
    - "family Macropodidae" -> family="Macropodidae"
    - "genus Eucalyptus" -> genus="Eucalyptus"
 
+8. FACET ANALYSIS EXTRACTION:
+   - Detect breakdown/analysis queries and extract appropriate facets
+   - "breakdown by [field]" -> facets=["field"] 
+   - "distribution across [field]" -> facets=["field"]
+   - "analyze by [category]" -> facets=["category"]
+
+   FACET FIELD MAPPING:
+   - "kingdom/kingdoms/groups" -> facets=["kingdom"]
+   - "state/states/location" -> facets=["state"] 
+   - "species" -> facets=["species"]
+   - "year/years/decade/decades/time" -> facets=["year"]
+   - "class/classes" -> facets=["class"] 
+   - "family/families" -> facets=["family"]
+   - "institution/institutions/collecting" -> facets=["institution_code"]
+   - "record/records/types" -> facets=["basis_of_record"]
+
+9. SPATIAL COORDINATES EXTRACTION:
+   - Extract city coordinates and radius for spatial queries
+   - "Brisbane" -> lat=-27.47, lon=153.03
+   - "Sydney" -> lat=-33.87, lon=151.21
+   - "Canberra" -> lat=-35.28, lon=149.13
+   - "Melbourne" -> lat=-37.81, lon=144.96
+   - "within X km" -> radius=X
+
+10. FACET PARAMETERS:
+   - "top X" -> flimit=X, fsort="count"
+   - "most common" -> fsort="count"
+   - "imaged species" -> has_images=True
+
+11. STATE EXTRACTION:
+   - "Queensland/QLD" -> state="Queensland"
+   - "New South Wales/NSW" -> state="New South Wales"  
+   - "Victoria/VIC" -> state="Victoria"
+   - "Western Australia/WA" -> state="Western Australia"
+   - "South Australia/SA" -> state="South Australia"
+   - "Tasmania/TAS" -> state="Tasmania"
+   - "Northern Territory/NT" -> state="Northern Territory"
+   - "Australian Capital Territory/ACT" -> state="Australian Capital Territory"
+
+   
 EXAMPLES:
 
 Query: "Show me koala occurrences in Australia"
@@ -115,6 +155,72 @@ Response: {
     "clarification_needed": false,
     "clarification_reason": "",
     "artifact_description": "Records of the family Macropodidae since 2020"
+}
+
+# Add these examples after your existing ones:
+
+Query: "What kingdoms are found within 10km of Brisbane?"
+Response: {
+    "params": {
+        "facets": ["kingdom"],
+        "lat": -27.47,
+        "lon": 153.03,
+        "radius": 10
+    },
+    "unresolved_params": [],
+    "clarification_needed": false,
+    "artifact_description": "Kingdom breakdown within 10km of Brisbane"
+}
+
+Query: "Break down all records in Queensland by kingdom"
+Response: {
+    "params": {
+        "facets": ["kingdom"],
+        "fq": ["state:Queensland"]
+    },
+    "unresolved_params": [],
+    "clarification_needed": false,
+    "artifact_description": "Kingdom breakdown for Queensland records"
+}
+
+Query: "How many Kangaroo records are found in each state?"
+Response: {
+    "params": {
+        "q": "Kangaroo",
+        "facets": ["state"]
+    },
+    "unresolved_params": [],
+    "clarification_needed": false,
+    "artifact_description": "Kangaroo records breakdown by state"
+}
+
+Query: "Show me the top 5 species recorded near Canberra"
+Response: {
+    "params": {
+        "facets": ["species"],
+        "lat": -35.28,
+        "lon": 149.13,
+        "radius": 10,
+        "flimit": 5,
+        "fsort": "count"
+    },
+    "unresolved_params": [],
+    "clarification_needed": false,
+    "artifact_description": "Top 5 species near Canberra"
+}
+
+Query: "Show me the most common imaged species in New South Wales"
+Response: {
+    "params": {
+        "facets": ["species"],
+        "fq": ["state:New South Wales"],
+        "has_images": true,
+        "flimit": 10,
+        "fsort": "count"
+    },
+    "unresolved_params": [],
+    "clarification_needed": false,
+    "artifact_description": "Most common imaged species in New South Wales"
 }
 """
 

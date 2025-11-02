@@ -910,11 +910,10 @@ class ALAiChatBioAgent:
                                         image_params = SpatialDistributionMapParams(imageId=str(geom_idx))
                                         await self.run_get_distribution_map(context, image_params)
                                         displayed_images += 1
-                                        await process.log(f"✓ Displayed distribution map: {area_name}")
+                                        await process.log(f" Displayed distribution map: {area_name}")
                                     except Exception as e:
                                         await process.log(f"Failed to display image {geom_idx}: {e}")
                 
-                # Enhanced user response with image information
                 summary = f"Successfully retrieved {distribution_count} expert spatial distribution area(s) for {species_name}. "
                 summary += "This data shows geographic areas where experts believe the species should occur based on ecological knowledge.\n\n"
 
@@ -957,8 +956,6 @@ class ALAiChatBioAgent:
                 await process.log(f"✗ Error fetching distribution: {e}")
                 await context.reply(f"Error fetching distribution data: {e}")
                 return {"success": False, "error": str(e)}
-
-    # === PUBLIC WORKFLOW ===
 
     async def run_get_distribution_by_lsid(self, context, query: str) -> Optional[Dict]:
         """
@@ -1172,11 +1169,40 @@ class UnifiedALAReActAgent(IChatBioAgent):
             except Exception as e:
                 return f"Error processing distribution request: {str(e)}"
 
+        @tool
+        async def get_occurrence_breakdown(query: str) -> str:
+            """Get data breakdowns and analytical insights from occurrence records.
+            
+            Use this for queries asking for:
+            - Data analysis: "Break down koala records by state", "Analysis of wombat data by year"  
+            - Categorical insights: "Show me species distribution across decades"
+            - Statistical breakdowns: "How are records distributed by collection type?"
+            - Spatial analysis: "What kingdoms are found within 10km of Brisbane?"
+            - Top/most common queries: "Show me the top 5 species near Sydney"
+            
+            This provides analytical facets/categories rather than individual records.
+            """
+            try:
+                extracted = await self.workflow_agent.ala_logic.extract_params(
+                        user_query=query,
+                        response_model=ALASearchResponse
+                    )
+                
+                # Convert to OccurrenceFacetsParams with extracted parameters
+                params = OccurrenceFacetsParams(**extracted.params)
+                
+                await self.workflow_agent.run_get_occurrence_facets(context, params)
+                return f"Successfully processed occurrence breakdown request"
+            except Exception as e:
+                return f"Error processing breakdown: {str(e)}"
+
+
         tools = [
             search_species_occurrences,
             get_species_images, 
             lookup_species_info,
             get_species_distribution,
+            get_occurrence_breakdown,
             abort,
             finish
         ]
