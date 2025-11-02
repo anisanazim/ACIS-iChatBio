@@ -1254,16 +1254,36 @@ class UnifiedALAReActAgent(IChatBioAgent):
     → Use get_species_images
     → Examples: "Show me photos of wombat", "What does echidna look like?"
 
-    - For distribution queries (range, habitat, geographic data):
+    - For distribution queries (range, habitat, geographic data, expert predictions):
     → Use get_species_distribution
-    → Examples: "Where do platypus live?", "Distribution of quoll"
+    → Examples: 
+    • "Where do platypus live?" 
+    • "Distribution of quoll"
+    • "What's the range of Tasmanian Devil?"
+    • "Show me koala habitat areas"
+    • "Geographic distribution of https://biodiversity.org.au/afd/taxa/00017b7e-89b3-4916-9c77-d4fbc74bdef6"
+    • "Expert distribution maps for bilby"
+    • "Predicted occurrence areas for echidna"
 
+    IMPORTANT DISTRIBUTION NOTES:
+    - Supports both species names ("Tasmanian Devil") AND direct LSID URLs
+    - Returns expert distribution AREAS/POLYGONS (not individual sightings)
+    - Automatically displays up to 3 distribution maps with direct image URLs
+    - Provides expert predictions based on habitat modeling and ecological knowledge
+    - For actual observation records, use search_species_occurrences instead
+    
     QUERY INTERPRETATION:
     - "Show me [species] occurrences" = occurrence search (NOT taxonomy)
     - "Find [species] records" = occurrence search (NOT taxonomy)  
     - "[Species] sightings" = occurrence search (NOT taxonomy)
     - "What is [species]?" = taxonomy search (NOT occurrence)
     - "Tell me about [species]" = taxonomy search (NOT occurrence)
+
+    For distribution queries specifically:
+    - Call get_species_distribution ONCE
+    - Present the geographic areas and any available distribution maps
+    - Include direct image URLs for user access
+    - Call finish() immediately - DO NOT retry the search
 
     For taxonomy queries specifically:
     - Call lookup_species_info ONCE
