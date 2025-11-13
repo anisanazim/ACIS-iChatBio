@@ -13,7 +13,25 @@ This project is an AI agent designed to interact with the [Atlas of Living Austr
 - [Example User Interactions](#example-user-interactions)
 
 ## Key Features
+Now supports core ALA information needs via a ReAct agent model with multi-tool orchestration:
 
+- **Conversational Biodiversity Search**: Users can ask open-ended or highly specific questions about Australian biodiversity, and the agent dynamically selects the right API tool(s) to answer.
+
+- **Dynamic Tool Routing**: Uses ReAct reasoning to choose between Occurrences, Taxonomy, Images, Distribution Maps, and Faceted Analysis based on query intent.
+
+- **Enhanced Parameter Extraction**: Employs LLM-based and Pydantic-powered extraction to support inquiries with geographic, temporal, taxonomic, image, and category filters from natural language.
+
+- **Faceted Data Analytics**: Supports queries like “what kingdoms are within 10km of Brisbane?” or “breakdown by state/year/type”, with high-fidelity analytical responses and visual distribution maps.
+
+- **Multi-step Query Handling**: Combines data across Occurrence, Spatial, and Species APIs as needed in a single conversational flow.
+
+## Current Production-Ready Tools (Entrypoints):
+Occurrence Records Search and Lookup
+Faceted Occurrence Breakdown (statistical/analytical queries)
+Taxonomic Information (species info and BIE search)
+Species Image Search
+Expert Distribution Range Mapping
+Species List Retrieval and Filtering
 This agent exposes comprehensive capabilities across four main ALA APIs:
 
 ### Occurrence API
@@ -29,7 +47,6 @@ This agent exposes comprehensive capabilities across four main ALA APIs:
 - **BIE Search**: Search the Biodiversity Information Explorer (BIE) for species and taxa
 
 ### Spatial API
-- **Expert Distribution Discovery**: List all available expert distribution maps for species
 - **Distribution by LSID**: Get expert distribution data for a taxon by its LSID
 - **Distribution Map Visualization**: Retrieve PNG map images showing species distribution ranges across Australia
 
@@ -38,19 +55,19 @@ This agent exposes comprehensive capabilities across four main ALA APIs:
 - **Species List Details**: Get detailed information about specific species lists
 - **Species List Items**: Get species from specific lists with optional name filtering
 - **Distinct Field Values**: Get distinct values for fields across all species list items
-- **Common Keys**: Get common metadata keys across multiple species lists
+
 
 ## Project Structure
 
 The agent is organized into four distinct files, each with a clear responsibility:
 
-- **`ala_logic.py`**: The core logic layer. This file handles all direct communication with the ALA API across four services (Occurrences, Species, Spatial, and Species Lists). It contains the Pydantic models for structuring API parameters, builds the API request URLs, and uses `cloudscraper` to execute HTTP requests for both JSON data and binary image content.
+- **`ala_logic.py`**: Handles ALA API access, builds dynamic requests, and structures parameter models.
 
-- **`ala_ichatbio_agent.py`**: The workflow orchestrator. This file defines the step-by-step processes for each of the agent's capabilities across all four API categories. It uses the functions from `ala_logic.py` and translates the outcomes into standardized `iChatBio` messages and artifacts.
+- **`ala_ichatbio_agent.py`**: The workflow orchestrator. Orchestrates the core ReAct agent workflows, integrating parameter extraction, tool selection logic, and response formatting.
 
-- **`agent_server.py`**: The production-ready web server. This file uses the `ichatbio-sdk` to wrap the agent in a web server, defines the formal `AgentCard` to advertise its capabilities across occurrence, species, spatial, and species list services, and routes incoming requests to the appropriate workflow in `ala_ichatbio_agent.py`.
+- **`agent_server.py`**: Serves the agent (as an iChatBio or API service); manages capability declarations and inbound request routing.
 
-- **`test_agent.py`**: Comprehensive test suite covering all implemented endpoints with real-world test data and scenarios across all API categories.
+- **`test_agent.py`**: Comprehensive test suite covering live scenarios and edge cases for all implemented tools.
 
 ## Setup and Installation
 
