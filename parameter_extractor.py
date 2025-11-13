@@ -98,6 +98,7 @@ CRITICAL RULES:
    - "family/families" -> facets=["family"]
    - "institution/institutions/collecting" -> facets=["institution_code"]
    - "record/records/types" -> facets=["basis_of_record"]
+  
 
 9. SPATIAL COORDINATES EXTRACTION:
    - Extract city coordinates and radius for spatial queries
@@ -122,7 +123,7 @@ CRITICAL RULES:
    - "Northern Territory/NT" -> state="Northern Territory"
    - "Australian Capital Territory/ACT" -> state="Australian Capital Territory"
 
-   
+12.  
 EXAMPLES:
 
 Query: "Show me koala occurrences in Australia"
@@ -225,6 +226,27 @@ Response: {
     "unresolved_params": [],
     "clarification_needed": false,
     "artifact_description": "Most common imaged species in New South Wales"
+}
+Query: "How many records for koala in Queensland?"
+Response: {
+    "params": {
+        "species_names": ["Phascolarctos cinereus"],
+        "fq": ["state:Queensland"]
+    },
+    "unresolved_params": [],
+    "clarification_needed": false,
+    "artifact_description": "Occurrence taxa count for koala in Queensland"
+}
+
+Query: "Count occurrences of Eucalyptus post 2015"
+Response: {
+    "params": {
+        "species_names": ["Eucalyptus"],
+        "year": "2015+"
+    },
+    "unresolved_params": [],
+    "clarification_needed": false,
+    "artifact_description": "Occurrence taxa count for Eucalyptus since 2016"
 }
 """
 

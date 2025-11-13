@@ -1126,19 +1126,19 @@ class UnifiedALAReActAgent(IChatBioAgent):
                     return f"Error executing search: {str(e)}"
 
 
-        @tool
-        async def get_species_images(species_name: str) -> str:
-            """Get images of Australian species."""
-            async with context.begin_process(f"Fetching images for {species_name}") as process:
-                try:
-                    params = SpeciesImageSearchParams(q=species_name)
-                    await process.log(f"Searching ALA for {species_name} images")
-                    await self.workflow_agent.run_species_image_search(context, params)
+        # @tool
+        # async def get_species_images(species_name: str) -> str:
+        #     """Get images of Australian species."""
+        #     async with context.begin_process(f"Fetching images for {species_name}") as process:
+        #         try:
+        #             params = SpeciesImageSearchParams(q=species_name)
+        #             await process.log(f"Searching ALA for {species_name} images")
+        #             await self.workflow_agent.run_species_image_search(context, params)
                     
-                    return f"Found images for {species_name}"
-                except Exception as e:
-                    await process.log(f"Error fetching images: {str(e)}")
-                    return f"Error fetching images: {str(e)}"
+        #             return f"Found images for {species_name}"
+        #         except Exception as e:
+        #             await process.log(f"Error fetching images: {str(e)}")
+        #             return f"Error fetching images: {str(e)}"
 
         @tool
         async def lookup_species_info(species_name: str) -> str:
@@ -1218,13 +1218,32 @@ class UnifiedALAReActAgent(IChatBioAgent):
             except Exception as e:
                 return f"Error processing breakdown: {str(e)}"
 
+        @tool
+        async def get_occurrence_taxa_count(query: str) -> str:
+            """
+            Get the occurrence record count for one or more species by name (or GUID), with user-friendly handling.
+            Accepts natural language like "Count koala records in Victoria" or "How many records for Macropus rufus after 2015?"
+            """
+            try:
+                # Extract user parameters (speciesname, identifier, filters, etc.)
+                extracted = await self.workflow_agent.ala_logic.extract_params(
+                    user_query=query,
+                    response_model=TaxaCountHelper
+                )
+                # Calls your user-friendly workflow that does resolution + counting + artifact
+                await self.workflow_agent.run_user_friendly_taxa_count(context, extracted)
+                return f"Successfully processed taxa count request."
+            except Exception as e:
+                return f"Error processing taxa count: {e}"
 
+        
         tools = [
             search_species_occurrences,
-            get_species_images, 
+            # get_species_images, 
             lookup_species_info,
             get_species_distribution,
             get_occurrence_breakdown,
+            get_occurrence_taxa_count,
             abort,
             finish
         ]
@@ -1265,7 +1284,7 @@ class UnifiedALAReActAgent(IChatBioAgent):
     Available Tools:
     - search_species_occurrences: Find where species have been observed in Australia, filter by year, location, or other occurrence-level attributes
     - get_occurrence_breakdown: Get analytical breakdowns and insights from occurrence data (facets, statistics, distributions)
-    - get_species_images: Retrieve photos and images of species
+    - get_occurrence_taxa_count: Get record counts for one or more species by scientific/common name or GUID/LSID (auto-resolves names)
     - lookup_species_info: Get comprehensive species profiles, taxonomy, and metadata (BIE search)
     - get_species_distribution: Get distribution maps and geographic data
 
@@ -1276,9 +1295,17 @@ class UnifiedALAReActAgent(IChatBioAgent):
     4. Do NOT call additional tools unless the user explicitly asks for multiple types of information
 
     TOOL SELECTION RULES - CHOOSE THE RIGHT TOOL:
+
     - For occurrence queries (records, sightings, observations, "where", "when", "how many"):
     → Use search_species_occurrences
     → Examples: "Show koala occurrences", "Find records in Queensland", "Sightings after 2020"
+
+    - For record count queries ("how many records for X", "count for Macropus rufus", "number of Acacia occurrences"):
+    → Use get_occurrence_taxa_count
+    → Examples:
+    • "How many records for koala?"
+    • "Count all records for Eucalyptus in NSW"
+    • "Occurrence count for Red Kangaroo after 2018"
 
     - For data analysis and breakdowns (analytical insights, statistics, "breakdown by", "distribution across"):
     → Use get_occurrence_breakdown  
@@ -1295,10 +1322,6 @@ class UnifiedALAReActAgent(IChatBioAgent):
     → Use lookup_species_info  
     → Examples: "What family does bilby belong to?", "Tell me about Macropus rufus", "Classification of koala"
 
-    - For image requests (photos, pictures, "what does it look like"):
-    → Use get_species_images
-    → Examples: "Show me photos of wombat", "What does echidna look like?"
-
     - For distribution queries (range, habitat, geographic data, expert predictions):
     → Use get_species_distribution
     → Examples: 
@@ -1311,14 +1334,18 @@ class UnifiedALAReActAgent(IChatBioAgent):
     • "Predicted occurrence areas for echidna"
 
     IMPORTANT NOTES:
-    - **Distribution Tool**: Returns expert distribution AREAS/POLYGONS (not individual sightings), supports species names AND LSID URLs, displays up to 3 maps with direct URLs
-    - **Breakdown Tool**: Provides analytical facets and statistics, handles spatial analysis (city coordinates), supports complex queries with filters
-    - For actual observation records, use search_species_occurrences instead
+    - **Taxa Count Tool**: Resolves species/common names to GUIDs automatically, supports filters (state, year, etc.), and returns user-friendly count summaries.
+    - **Distribution Tool**: Returns expert distribution AREAS/POLYGONS (not individual sightings), supports species names AND LSID URLs, displays up to 3 maps with direct URLs.
+    - **Breakdown Tool**: Provides analytical facets and statistics, handles spatial analysis (city coordinates), supports complex queries with filters.
+    - For actual observation records, use search_species_occurrences instead.
 
     QUERY INTERPRETATION:
     - "Show me [species] occurrences" = occurrence search (NOT breakdown)
     - "Find [species] records" = occurrence search (NOT breakdown)  
     - "[Species] sightings" = occurrence search (NOT breakdown)
+    - "How many [species] records" = taxa count (NOT breakdown)
+    - "Count for [species]" = taxa count
+    - "[species] record count in [region]" = taxa count
     - "Break down [species] by [category]" = occurrence breakdown (NOT search)
     - "Analyze [species] data" = occurrence breakdown (NOT search)
     - "What kingdoms are found near [city]?" = occurrence breakdown (NOT search)
@@ -1326,6 +1353,11 @@ class UnifiedALAReActAgent(IChatBioAgent):
     - "What is [species]?" = taxonomy search (NOT occurrence)
     - "Tell me about [species]" = taxonomy search (NOT occurrence)
     - "Where do [species] live?" = distribution search (NOT occurrences)
+
+    For taxa count queries specifically:
+    - Call get_occurrence_taxa_count ONCE
+    - Present the occurrence count summary and resolve all species names (or GUIDs)
+    - Call finish() immediately - DO NOT retry the search
 
     For breakdown queries specifically:
     - Call get_occurrence_breakdown ONCE
@@ -1348,3 +1380,4 @@ class UnifiedALAReActAgent(IChatBioAgent):
 
     Always create artifacts when retrieving data.
     """
+
