@@ -514,42 +514,51 @@ class ALAiChatBioAgent:
     async def run_species_image_search(self, context, params: SpeciesImageSearchParams):
         """
         Workflow for searching and fetching the first available image for a species.
-        This function now includes the logic for Step 3 (parsing) and Step 4 (downloading).
         """
         async with context.begin_process(f"Fetching image for taxon ID '{params.id}'") as process:
-            # --- STEP 2: Search for image metadata ---
+            print(f"[DEBUG] Started run_species_image_search with params: {params}")
             await process.log("Image search parameters", data=params.model_dump())
             
-            # We only need one result to get an image URL
             metadata_url = self.ala_logic.build_species_image_search_url(params)
+            print(f"[DEBUG] Constructed metadata URL: {metadata_url}")
             await process.log(f"Constructed metadata URL: {metadata_url}")
 
             try:
                 loop = asyncio.get_event_loop()
                 image_metadata = await loop.run_in_executor(None, lambda: self.ala_logic.execute_request(metadata_url))
+                print(f"[DEBUG] Successfully retrieved image metadata: {image_metadata}")
                 await process.log("Successfully retrieved image metadata.", data=image_metadata)
                 
             except ConnectionError as e:
+                print(f"[DEBUG] ConnectionError during metadata request: {e}")
                 await process.log("Error during metadata request", data={"error": str(e)})
                 await context.reply(f"I encountered an error while searching for image information: {e}")
-                return # Stop execution if metadata search fails
+                return
 
-            # --- STEP 3: Parse JSON and extract the direct image URL ---
+            except asyncio.TimeoutError:
+                print(f"[DEBUG] TimeoutError during metadata request for URL: {metadata_url}")
+                await process.log("Image metadata request timed out")
+                await context.reply("The image search took too long to respond. Please try again later.")
+                return
 
             image_url = None
             try:
                 results = image_metadata.get('searchResults', {}).get('results', [])
+                print(f"[DEBUG] Parsed results list: {results}")
                 if results and 'imageUrl' in results[0]:
                     image_url = results[0]['imageUrl']
+                    print(f"[DEBUG] Extracted direct image URL: {image_url}")
                     await process.log(f"Extracted direct image URL: {image_url}")
                 else:
-                    # This handles cases where the search is successful but returns no images
+                    print(f"[DEBUG] No images found in search results.")
                     await context.reply(f"I found information about the species, but there are no images available for taxon ID '{params.id}'.")
                     return
             except (ValueError, KeyError, IndexError) as e:
+                print(f"[DEBUG] Error parsing image metadata: {e}")
                 await process.log("Error parsing image metadata", data={"error": str(e)})
                 await context.reply("I found image information but could not extract a valid download link.")
                 return
+
 
     async def run_species_bie_search(self, context, params: SpeciesBieSearchParams):
         """Workflow for searching the Biodiversity Information Explorer (BIE) with field validation"""
