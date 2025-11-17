@@ -1126,19 +1126,39 @@ class UnifiedALAReActAgent(IChatBioAgent):
                     return f"Error executing search: {str(e)}"
 
 
-        # @tool
-        # async def get_species_images(species_name: str) -> str:
-        #     """Get images of Australian species."""
-        #     async with context.begin_process(f"Fetching images for {species_name}") as process:
-        #         try:
-        #             params = SpeciesImageSearchParams(q=species_name)
-        #             await process.log(f"Searching ALA for {species_name} images")
-        #             await self.workflow_agent.run_species_image_search(context, params)
-                    
-        #             return f"Found images for {species_name}"
-        #         except Exception as e:
-        #             await process.log(f"Error fetching images: {str(e)}")
-        #             return f"Error fetching images: {str(e)}"
+        @tool
+        async def get_species_images(query: str, context) -> str:
+            """
+            Retrieve a primary image for an Australian species.
+            Accepts either a species name (common or scientific) or a unique LSID/GUID.
+            """
+            try:
+                # 1. Extract parameters
+                extracted = await self.workflow_agent.ala_logic.extract_params(
+                    user_query=query,
+                    response_model=SpeciesImageSearchParams  # Adjust this if your extractor expects a wrapper model
+                )
+                # 2. Check if we already have the 'id' (LSID/GUID); if not, attempt to resolve from species name
+                species_id = extracted.params.get("id") or extracted.params.get("species_name")
+                if not species_id:
+                    # Could not determine a species identifier
+                    return "I could not determine the species identifier from your query."
+
+                # If 'species_id' is not in LSID/GUID format (is just a name), resolve it:
+                if not species_id.startswith("http"):
+                    # Use your helper to resolve the name to an LSID with logging
+                    lsid = await self._resolve_species_to_lsid(context, species_id)
+                    if not lsid:
+                        return f"Could not resolve '{species_id}' to a unique LSID or identifier."
+                    species_id = lsid
+
+                # 3. Prepare parameters for species image search
+                params = SpeciesImageSearchParams(id=species_id)
+                await self.workflow_agent.run_species_image_search(context, params)
+                return f"Species image search completed for '{query}'."
+            except Exception as e:
+                return f"Error fetching images: {str(e)}"
+
 
         @tool
         async def lookup_species_info(species_name: str) -> str:
@@ -1239,7 +1259,7 @@ class UnifiedALAReActAgent(IChatBioAgent):
         
         tools = [
             search_species_occurrences,
-            # get_species_images, 
+            get_species_images, 
             lookup_species_info,
             get_species_distribution,
             get_occurrence_breakdown,
@@ -1287,6 +1307,8 @@ class UnifiedALAReActAgent(IChatBioAgent):
     - get_occurrence_taxa_count: Get record counts for one or more species by scientific/common name or GUID/LSID (auto-resolves names)
     - lookup_species_info: Get comprehensive species profiles, taxonomy, and metadata (BIE search)
     - get_species_distribution: Get distribution maps and geographic data
+    - get_species_images: Retrieve primary images for Australian species by name or LSID/GUID
+    - finish: Call when the request is successfully completed
 
     CRITICAL STOPPING RULES - FOLLOW THESE EXACTLY:
     1. Use each tool ONLY ONCE per query
@@ -1333,6 +1355,16 @@ class UnifiedALAReActAgent(IChatBioAgent):
     • "Expert distribution maps for bilby"
     • "Predicted occurrence areas for echidna"
 
+    For image and photo queries (requests to view, display, or search for species photos, images, or visual content):
+    → Use get_species_images
+    → Examples:
+    - "Show me a photo of the numbat"
+    - "Find images of Macropus rufus"
+    - "What does a quokka look like?"
+    - "Display species image for Koala"
+    - "Species image for https://biodiversity.org.au/afd/taxa/7e6e134b-2bc7-43c4-b23a-6e3f420f57ad"
+    - "View primary image for Tasmanian Devil"
+
     IMPORTANT NOTES:
     - **Taxa Count Tool**: Resolves species/common names to GUIDs automatically, supports filters (state, year, etc.), and returns user-friendly count summaries.
     - **Distribution Tool**: Returns expert distribution AREAS/POLYGONS (not individual sightings), supports species names AND LSID URLs, displays up to 3 maps with direct URLs.
@@ -1375,6 +1407,15 @@ class UnifiedALAReActAgent(IChatBioAgent):
     - Call lookup_species_info ONCE
     - Present the results you receive (species list, classification, etc.)
     - Call finish() immediately - DO NOT retry the search
+
+    For image/photo queries specifically:
+    For requests just to see visual representation or photograph, always select the image tool and resolve to an ID if only a name is provided.
+    "Show me a photo of [species]" = image search (get_species_images)
+    "Find images for [species]" = image search (get_species_images)
+    "What does [species] look like?" = image search (get_species_images)
+    "Species image for [LSID or GUID]" = image search (get_species_images)
+    "Display species image/photo for [name or ID]" = image search (get_species_images)
+ 
 
     REMEMBER: ONE tool call + finish() = Complete response
 

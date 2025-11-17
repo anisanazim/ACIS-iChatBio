@@ -248,6 +248,22 @@ Response: {
     "clarification_needed": false,
     "artifact_description": "Occurrence taxa count for Eucalyptus since 2016"
 }
+
+Query: "Show me an image of the Tasmanian Tiger"
+Response: {
+  "params": {
+    "species_name": "Thylacinus cynocephalus"
+  },
+  ...
+}
+
+Query: "Species image for https://biodiversity.org.au/afd/taxa/7e6e134b-2bc7-43c4-b23a-6e3f420f57ad"
+Response: {
+  "params": {
+    "id": "https://biodiversity.org.au/afd/taxa/7e6e134b-2bc7-43c4-b23a-6e3f420f57ad"
+  },
+  ...
+}
 """
 
 
