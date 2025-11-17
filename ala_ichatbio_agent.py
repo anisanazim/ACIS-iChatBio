@@ -1288,7 +1288,9 @@ class UnifiedALAReActAgent(IChatBioAgent):
             )
             
             system_prompt = self._make_system_prompt(params.query, request)
+            print(request)
             agent = create_react_agent(llm, tools)
+            print(agent)
             
             try:
                 await agent.ainvoke({
