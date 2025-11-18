@@ -6,7 +6,7 @@ import os
 import yaml
 from datetime import datetime
 from ala_logic import get_bie_fields
-
+from langchain.callbacks.base import BaseCallbackHandler
 # Add new imports 
 from typing_extensions import override
 from pydantic import BaseModel, Field
@@ -38,6 +38,17 @@ from ala_logic import (
     SpeciesListDetailsParams, 
     SpeciesListItemsParams, SpeciesListDistinctFieldParams
 )
+class LoggingCallbackHandler(BaseCallbackHandler):
+    def on_agent_action(self, action, **kwargs):
+        print(f"[Agent Action] Tool selected: {action.tool}, Input: {action.tool_input}")
+
+    def on_agent_finish(self, finish, **kwargs):
+        print(f"[Agent Finish] Result: {finish.return_values}")
+
+    def on_llm_new_token(self, token, **kwargs):
+        # Optional: capture token stream from LLM
+        print(token, end='', flush=True)
+
 class ALAiChatBioAgent:
     """The iChatBio agent implementation for ALA"""
 
@@ -1289,16 +1300,19 @@ class UnifiedALAReActAgent(IChatBioAgent):
             
             system_prompt = self._make_system_prompt(params.query, request)
             print(request)
+            logging_handler = LoggingCallbackHandler()
             agent = create_react_agent(llm, tools)
             print(agent)
             
             try:
-                await agent.ainvoke({
+                response = await agent.ainvoke({
                     "messages": [
                         SystemMessage(content=system_prompt),
                         HumanMessage(content=request)
                     ]
-                })
+                }, callbacks=[logging_handler])
+                print("Full agent response:")
+                print(response)
                 
             except Exception as e:
                 await process.log(f"Agent execution failed: {type(e).__name__} - {str(e)}")
@@ -1432,4 +1446,3 @@ class UnifiedALAReActAgent(IChatBioAgent):
 
     Always create artifacts when retrieving data.
     """
-
