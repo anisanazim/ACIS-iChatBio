@@ -39,7 +39,7 @@ class UnifiedALAParams(BaseModel):
     context: Optional[str] = Field(None, description="Additional context or specific requirements")
 
 
-from main_ala_logic import (
+from ala_logic import (
     ALA, 
     OccurrenceSearchParams, OccurrenceLookupParams, OccurrenceFacetsParams, OccurrenceTaxaCountParams, TaxaCountHelper,
     SpeciesGuidLookupParams, SpeciesImageSearchParams, SpeciesBieSearchParams,

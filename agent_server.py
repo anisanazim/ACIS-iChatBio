@@ -1,7 +1,5 @@
 # agent_server.py
 from typing_extensions import override
-from pydantic import BaseModel
-from ichatbio.agent import IChatBioAgent
 from ichatbio.agent_response import ResponseContext
 from ichatbio.server import run_agent_server
 from ichatbio.types import AgentCard, AgentEntrypoint
@@ -34,5 +32,5 @@ class ALAAgent(UnifiedALAReActAgent):
 
 if __name__ == "__main__":
     agent = ALAAgent()
-    print(f"Starting unified iChatBio agent server for '{card.name}' at http://localhost:9999")
-    run_agent_server(agent, host="0.0.0.0", port=9999)
+    print(f"Starting unified iChatBio agent server for '{card.name}' at http://0.0.0.0:8092")
+    run_agent_server(agent, host="0.0.0.0", port=8092)
