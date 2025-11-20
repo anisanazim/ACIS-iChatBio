@@ -3,8 +3,9 @@ import yaml
 import requests
 import instructor
 from openai import AsyncOpenAI
+from pydantic_core import PydanticUndefined
 from pydantic import BaseModel, Field, field_validator
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Type, Tuple
 from urllib.parse import urlencode
 import cloudscraper
 from parameter_extractor import extract_params_from_query, ALASearchResponse
@@ -223,21 +224,6 @@ class OccurrenceSearchParams(BaseModel):
         ge=0
     )
 
-class OccurrenceLookupParams(BaseModel):
-    """Parameters for looking up a single occurrence record by its UUID."""
-    
-    # Path parameter (required)
-    recordUuid: str = Field(..., 
-        description="The unique identifier (UUID) of the occurrence record.",
-        examples=["ed26f40e-1dc1-499b-bf64-5d22cbeed5e6", "c4262666-3d23-4f69-8492-968d92823b65"]
-    )
-    
-    # Query parameter (optional)
-    im: Optional[bool] = Field(False,
-        description="Include image metadata in the response",
-        examples=[True, False]
-    )
-
 class OccurrenceFacetsParams(BaseModel):
     """Pydantic model for GET /occurrences/facets - Get distinct facet counts"""
     
@@ -445,8 +431,6 @@ class SpatialDistributionByLsidParams(BaseModel):
             raise ValueError("Invalid LSID format")
         return v
 
-   
-
 class SpatialDistributionMapParams(BaseModel):
     """Pydantic model for distribution map image for a species (after fetching the imageId) """
     imageId: str = Field(..., 
@@ -510,55 +494,20 @@ class TaxaCountHelper(BaseModel):
         examples=["HumanObservation", "PreservedSpecimen"]
     )
 
-# 2. GET /ws/specieslist/{druid} - Get species list details
-class SpeciesListDetailsParams(BaseModel):
-    """Get details of a specific species list"""
-    druid: str = Field(..., 
-        description="The data resource ID to identify a list (required for specific list, optional for multiple lists)",
-        examples=["dr781", "dr123", "dr456"]
-    )
-    sort: Optional[str] = Field("dataResourceUid",
-        description="The field on which to sort the returned results",
-        examples=["dataResourceUid", "listName", "dateCreated"]
-    )
-    max: int = Field(10, description="The number of records to return", ge=1, le=1000)
-    offset: int = Field(0, description="The records offset, to enable paging", ge=0)
-
-# 3. GET /ws/specieslistItems/{druid} - Get species list items
-class SpeciesListItemsParams(BaseModel):
-    """Get species within a specific list with advanced filtering"""
-    druid: str = Field(...,
-        description="The data resource ID or comma separated data resource IDs to identify lists",
-        examples=["dr781", "dr123","dr781","dr332"]
-    )
-    q: Optional[str] = Field(None,
-        description="Optional query string to search common name, supplied name and scientific name",
-        examples=["Acacia pycnantha", "Eurystomus orientalis", "golden wattle"]
-    )
-    nonulls: bool = Field(True,
-        description="Whether to include or exclude species list items with null value for species guid"
-    )
-    sort: str = Field("itemOrder",
-        description="The field on which to sort the returned results",
-        examples=["itemOrder", "scientificName", "commonName"]
-    )
-    max: int = Field(10, description="The number of records to return", ge=1, le=1000)
-    offset: int = Field(0, description="The records offset, to enable paging", ge=0)
-    include_kvp: bool = Field(True,
-        description="Whether to include KVP (key value pairs) values in the returned list item"
-    )
-
-# 4. GET /ws/specieslistItems/distinct/{field} - Get distinct field values
-class SpeciesListDistinctFieldParams(BaseModel):
-    """Get distinct values for a field across all species list items"""
-    field: str = Field(...,
-        description="The field (e.g. kingdom, matchedName, rawScientificName etc.) to get distinct values for",
-        examples=["kingdom", "matchedName", "rawScientificName", "family", "genus"]
-    )
-
-from pydantic import BaseModel, Field, field_validator
-from typing import List, Optional, Dict, Any
-
+def map_params_to_model(resolved_params: dict, model_class: Type[BaseModel]) -> Tuple[BaseModel, List[str]]:
+    model_fields = model_class.model_fields
+    missing_required = []
+    mapped = {}
+    
+    for name, field in model_fields.items():
+        if name in resolved_params:
+            mapped[name] = resolved_params[name]
+        elif field.is_required():
+            # Field is required and not provided
+            missing_required.append(name)
+        # Optional fields with defaults will be handled by Pydantic automatically
+    
+    return model_class(**mapped), missing_required
 
 class ALA:
     def __init__(self): 
@@ -586,8 +535,6 @@ class ALA:
             with open('env.yaml', 'r') as f:
                 value = (yaml.safe_load(f) or {}).get(key, default)
         return value if value is not None else default
-
-    
  
     def build_occurrence_url(self, params: OccurrenceSearchParams) -> str:
         """Build occurrence search URL"""
@@ -696,22 +643,7 @@ class ALA:
         query_string = urlencode(api_params, doseq=True, quote_via=requests.utils.quote)
 
         return f"{base_url}{endpoint_path}?{query_string}"
-
-    def build_occurrence_lookup_url(self, params: OccurrenceLookupParams) -> str:
-        """Builds the API URL for looking up a single occurrence."""
-        base_url = f"{self.ala_api_base_url}/occurrences/occurrences/{params.recordUuid}"
-        
-        # Add query parameters if needed
-        query_params = {}
-        if params.im is not None:
-            query_params['im'] = str(params.im).lower()
-        
-        if query_params:
-            query_string = urlencode(query_params)
-            return f"{base_url}?{query_string}"
-        else:
-            return base_url
-        
+   
     def build_occurrence_facets_url(self, params: OccurrenceFacetsParams) -> str:
         """Build URL for GET /occurrences/facets"""
         param_dict = params.model_dump(exclude_none=True, by_alias=True)
@@ -779,10 +711,6 @@ class ALA:
         query_string = urlencode(api_params, doseq=True, quote_via=requests.utils.quote)
         return f"{self.ala_api_base_url}/occurrences/occurrences/facets?{query_string}"
 
-    def build_index_fields_url(self) -> str:
-        """Builds the API URL for getting all indexed fields."""
-        return f"{self.ala_api_base_url}/occurrences/index/fields"
-    
     def build_species_guid_lookup_url(self, params: SpeciesGuidLookupParams) -> str:
         """Build URL for GET /guid/{name}"""
         encoded_name = requests.utils.quote(params.name, safe='')
@@ -809,7 +737,6 @@ class ALA:
         else:
             return f"{self.ala_api_base_url}/species/imageSearch/{encoded_id}"
 
-
     def build_species_bie_search_url(self, params: SpeciesBieSearchParams) -> str:
         """Build URL for GET /search"""
         query_params = {
@@ -829,9 +756,7 @@ class ALA:
         query_string = urlencode(query_params, quote_via=requests.utils.quote)
         return f"{self.ala_api_base_url}/species/search?{query_string}" 
    
-
     def build_spatial_distribution_by_lsid_url(self, lsid: str):
-        # The API expects the LSID to be URL-encoded
         encoded_lsid = requests.utils.quote(lsid, safe='')
         return f"{self.ala_api_base_url}/spatial-service/distribution/lsids/{encoded_lsid}"
     
@@ -856,37 +781,6 @@ class ALA:
         query_string = urlencode(api_params, doseq=True, quote_via=requests.utils.quote)
         return f"{self.ala_api_base_url}/occurrences/occurrences/taxaCount?{query_string}"
     
-    def build_species_list_details_url(self, params: SpeciesListDetailsParams) -> str:
-        """Build URL for GET /ws/specieslist/{druid}"""
-        query_params = {
-            "sort": params.sort,
-            "max": params.max,
-            "offset": params.offset
-        }
-        query_string = urlencode(query_params)
-        return f"{self.ala_api_base_url}/specieslist/ws/speciesList/{params.druid}?{query_string}"
-
-    def build_species_list_items_url(self, params: SpeciesListItemsParams) -> str:
-        """Build URL for GET /ws/speciesListItems/{druid}"""
-        query_params = {
-            "nonulls": str(params.nonulls).lower(),
-            "sort": params.sort,
-            "max": params.max,
-            "offset": params.offset,
-            "includeKVP": str(params.include_kvp).lower()
-        }
-        
-        if params.q:
-            query_params["q"] = params.q
-        
-        query_string = urlencode(query_params)
-        return f"{self.ala_api_base_url}/specieslist/ws/speciesListItems/{params.druid}?{query_string}"
-
-    def build_species_list_distinct_field_url(self, params: SpeciesListDistinctFieldParams) -> str:
-        """Build URL for GET /ws/speciesListItems/distinct/{field}"""
-        return f"{self.ala_api_base_url}/specieslist/ws/speciesListItems/distinct/{params.field}"
-
-
     def execute_image_request(self, url: str) -> bytes:
         """Execute request for image data (PNG)."""
         try:
@@ -909,7 +803,6 @@ class ALA:
             raise ConnectionError("API took too long to respond. Consider refining your request to reduce response time.")
         except requests.exceptions.RequestException as e:
             raise ConnectionError(f"API request failed: {e}")
-
 
     def execute_post_request(self, url: str, data: dict) -> dict:
         """Execute POST request with JSON data."""
