@@ -1,89 +1,244 @@
 # parameter_resolver.py
-import requests
 from functools import cache
 from typing import Optional, Dict
 from parameter_extractor import ALASearchResponse
 
 
 class ALAParameterResolver:
-    def __init__(self, ala_api_base_url):
-        self.ala_api_base_url = ala_api_base_url
+    """
+    Resolves scientific/common names & LSIDs using ALA's Name Matching API.
+    Also fills unresolved parameters in ALASearchResponse.
+    """
 
-    @cache
-    def resolve_scientific_name(self, name: str) -> Optional[Dict]:
-        """
-        Resolve a common or scientific name to canonical scientific name and identifiers 
-        using ALA's species/guid endpoint.
-        """
+    def __init__(self, ala_logic):
+        self.ala_logic = ala_logic
+        # Create cached versions of the logic methods
+        self._cached_scientific_search = cache(self._search_scientific_wrapper)
+        self._cached_vernacular_search = cache(self._search_vernacular_wrapper)
+
+    # -----------------------------
+    # Cached API Wrappers
+    # -----------------------------
+    def _search_scientific_wrapper(self, name: str):
+        """Wrapper for caching scientific name searches"""
         try:
-            url = f"{self.ala_api_base_url}/species/guid/{name}"
-            response = requests.get(url, timeout=10)
-            response.raise_for_status()
-            data = response.json()
-            if data:
-                # Choose the first entry (primary match)
-                primary = data[0] if isinstance(data, list) else data
-                return {
-                    "scientific_name": primary.get("acceptedName") or primary.get("scientificName"),
-                    "lsid": primary.get("acceptedIdentifier") or primary.get("guid"),
-                    "original_name": primary.get("name")
-                }
+            from ala_logic import NameMatchingSearchParams
+            print(f"[Resolver DEBUG] Creating NameMatchingSearchParams for: {name}")
+            params = NameMatchingSearchParams(q=name)
+            print(f"[Resolver DEBUG] Calling ala_logic.search_scientific_name")
+            result = self.ala_logic.search_scientific_name(params)
+            # print(f"[Resolver DEBUG] Result: {result}")
+            return result
         except Exception as e:
-            print(f"Name resolution failed for {name}: {e}")
-        return None
+            print(f"[Resolver DEBUG] Exception in _search_scientific_wrapper: {e}")
+            import traceback
+            traceback.print_exc()
+            raise
 
+    def _search_vernacular_wrapper(self, name: str):
+        """Wrapper for caching vernacular name searches"""
+        try:
+            from ala_logic import VernacularNameSearchParams
+            print(f"[Resolver DEBUG] Creating VernacularNameSearchParams for: {name}")
+            params = VernacularNameSearchParams(vernacularName=name)
+            print(f"[Resolver DEBUG] Calling ala_logic.search_vernacular_name")
+            result = self.ala_logic.search_vernacular_name(params)
+            # print(f"[Resolver DEBUG] Result: {result}")
+            return result
+        except Exception as e:
+            print(f"[Resolver DEBUG] Exception in _search_vernacular_wrapper: {e}")
+            import traceback
+            traceback.print_exc()
+            raise
+
+    # -----------------------------
+    # LSID Detection
+    # -----------------------------
+    def _is_lsid(self, value: str) -> bool:
+        """Check if a string is already an LSID URL."""
+        if not isinstance(value, str):
+            return False
+        return (
+            value.startswith("https://biodiversity.org.au/afd/taxa/") or
+            value.startswith("https://id.biodiversity.org.au/taxon/") or
+            value.startswith("https://biodiversity.org.au/apni/")
+        )
+
+    # -----------------------------
+    # Name Resolution Helpers
+    # -----------------------------
+    def resolve_scientific_name(self, name: str) -> Optional[Dict]:
+        """Resolve scientific names using /search (cached)."""
+        try:
+            data = self._cached_scientific_search(name)
+
+            if not (data and data.get("success")):
+                return None
+
+            return self._extract_resolution_fields(data, name)
+
+        except Exception as e:
+            print(f"[Resolver] Scientific name resolution failed for '{name}': {e}")
+            return None
+
+    def resolve_common_name(self, name: str) -> Optional[Dict]:
+        """Resolve common names using /searchByVernacularName (cached)."""
+        try:
+            data = self._cached_vernacular_search(name)
+
+            if not (data and data.get("success")):
+                return None
+
+            return self._extract_resolution_fields(data, name)
+
+        except Exception as e:
+            print(f"[Resolver] Common name resolution failed for '{name}': {e}")
+            return None
+
+    def _extract_resolution_fields(self, data, original_name):
+        """Extract fields from name matching API response."""
+        return {
+            "scientific_name": data.get("scientificName"),
+            "lsid": data.get("taxonConceptID"),
+            "original_name": original_name,
+            "rank": data.get("rank"),
+            "match_type": data.get("matchType"),
+            "name_type": data.get("nameType"),
+            "vernacular_name": data.get("vernacularName"),
+            "kingdom": data.get("kingdom"),
+            "family": data.get("family"),
+            "genus": data.get("genus"),
+            "species": data.get("species"),
+        }
+
+    # -----------------------------
+    # Smart Name Resolution
+    # -----------------------------
+    def resolve_species_name(self, name: str) -> Optional[Dict]:
+        # SPECIAL CASE: If it's already an LSID, return it directly
+        if self._is_lsid(name):
+            print(f"[Resolver] Input is already an LSID: {name}")
+            return {
+                "scientific_name": None,
+                "lsid": name,
+                "original_name": name,
+                "rank": None,
+                "match_type": "directLSID",
+                "name_type": "LSID",
+                "vernacular_name": None,
+                "kingdom": None,
+                "family": None,
+                "genus": None,
+                "species": None,
+            }
+        
+        # Try scientific name endpoint (cached)
+        sci = self.resolve_scientific_name(name)
+        if sci:  # ← Remove the complex filter, just check if we got a result
+            print(f"[Resolver] Resolved '{name}' via scientific search")
+            return sci
+
+        # Try common name endpoint (cached)
+        common = self.resolve_common_name(name)
+        if common:
+            print(f"[Resolver] Resolved '{name}' via common name search")
+            return common
+
+        print(f"[Resolver] Could not resolve '{name}'")
+        return None
+  
+    # -----------------------------
+    # Resolve extracted response
+    # -----------------------------
     async def resolve_unresolved_params(self, extracted_response: ALASearchResponse) -> ALASearchResponse:
         """
-        Resolve unresolved parameters automatically using the authoritative GUID endpoint.
-        
-        This method:
-        1. Resolves explicitly unresolved parameters (like scientific_name)
-        2. ALWAYS attempts LSID resolution for species queries (for distribution/image tools)
+        Auto resolves:
+        - unresolved scientific_name
+        - LSID for species queries
+        - enrichment metadata
         """
-        
-        # Step 1: Handle explicitly unresolved params first
+
+        params = extracted_response.params
+
+        # -----------------------------
+        # STEP 1: Resolve explicit unresolved params
+        # -----------------------------
         if extracted_response.unresolved_params:
-            for param in extracted_response.unresolved_params.copy():
-                if param == "scientific_name" and "q" in extracted_response.params:
-                    query_name = extracted_response.params["q"]
-                    resolution = self.resolve_scientific_name(query_name)
-                    if resolution:
-                        extracted_response.params["scientific_name"] = resolution["scientific_name"]
-                        extracted_response.params["lsid"] = resolution.get("lsid")
+            for param in list(extracted_response.unresolved_params):
+                if param == "scientific_name" and "q" in params:
+                    resolved = self.resolve_species_name(params["q"])
+                    if resolved:
+                        # Update scientific_name only if not present AND it was resolved
+                        if "scientific_name" not in params and resolved.get("scientific_name"):
+                            params["scientific_name"] = resolved.get("scientific_name")
+                        
+                        # Always update LSID and ID
+                        params["lsid"] = resolved.get("lsid")
+                        params["id"] = resolved.get("lsid")
+                        
+                        # Remove from unresolved
                         extracted_response.unresolved_params.remove(param)
 
-        # Step 2: ALWAYS try to resolve LSID if we have a species query and no LSID yet
-        # This is critical for tools like get_species_distribution and get_species_images
-        if "lsid" not in extracted_response.params or extracted_response.params["lsid"] is None:
-            # Try to get species identifier from various fields
-            species_identifier = None
-            
-            # Priority order for finding species name to resolve
-            if "q" in extracted_response.params:
-                species_identifier = extracted_response.params["q"]
-            elif "scientific_name" in extracted_response.params:
-                sci_name = extracted_response.params["scientific_name"]
-                species_identifier = sci_name[0] if isinstance(sci_name, list) else sci_name
-            elif "species_name" in extracted_response.params:
-                sp_name = extracted_response.params["species_name"]
-                species_identifier = sp_name[0] if isinstance(sp_name, list) else sp_name
-            elif "common_name" in extracted_response.params:
-                common = extracted_response.params["common_name"]
-                species_identifier = common[0] if isinstance(common, list) else common
-            
-            # Attempt resolution if we found a species identifier
-            if species_identifier:
-                resolution = self.resolve_scientific_name(species_identifier)
-                if resolution:
-                    # Only update if not already present
-                    if "scientific_name" not in extracted_response.params:
-                        extracted_response.params["scientific_name"] = resolution["scientific_name"]
-                    extracted_response.params["lsid"] = resolution.get("lsid")
-                    extracted_response.params["id"] = resolution.get("lsid")  # Also set 'id' for image search
+        # -----------------------------
+        # STEP 2: Always try LSID resolution if missing
+        # -----------------------------
+        if not params.get("lsid"):
+            species_identifier = self._pick_species_identifier(params)
 
-        # Step 3: Update clarification status
+            if species_identifier:
+                print(f"[Resolver] Attempting LSID resolution for: {species_identifier}")
+                resolved = self.resolve_species_name(species_identifier)
+
+                if resolved:
+                    lsid = resolved.get('lsid')
+                    sci_name = resolved.get('scientific_name')
+                    
+                    # Log what we got
+                    if sci_name:
+                        print(f"[Resolver] Resolved: {sci_name} LSID={lsid}")
+                    else:
+                        print(f"[Resolver] Using direct LSID: {lsid}")
+
+                    # Update scientific_name only if not present AND it was resolved
+                    if "scientific_name" not in params and sci_name:
+                        params["scientific_name"] = sci_name
+                    
+                    # Always update LSID and ID (critical for tools)
+                    params["lsid"] = lsid
+                    params["id"] = lsid
+
+                    # Optional metadata (only if available)
+                    self._add_extra_metadata(params, resolved)
+
+                else:
+                    print(f"[Resolver] ✗ Failed to resolve LSID for: {species_identifier}")
+
+        # -----------------------------
+        # Final: update flags
+        # -----------------------------
         extracted_response.clarification_needed = len(extracted_response.unresolved_params) > 0
         if not extracted_response.clarification_needed:
             extracted_response.clarification_reason = ""
 
         return extracted_response
+
+    # -----------------------------
+    # Helper utilities
+    # -----------------------------
+    def _pick_species_identifier(self, params):
+        """Pick best identifier to resolve LSID."""
+        keys = ["q", "id", "scientific_name", "species_name", "common_name"]
+        for key in keys:
+            if key in params:
+                value = params[key]
+                return value[0] if isinstance(value, list) else value
+        return None
+
+    def _add_extra_metadata(self, params, resolved):
+        """Attach extra info (vernacular, rank, family, etc.) only if not already present."""
+        if resolved.get("vernacular_name") and "common_name" not in params:
+            params["common_name"] = resolved["vernacular_name"]
+        if resolved.get("rank") and "rank" not in params:
+            params["rank"] = resolved["rank"]
+        if resolved.get("family") and "family" not in params:
+            params["family"] = resolved["family"]

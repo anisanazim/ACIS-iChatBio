@@ -20,6 +20,14 @@ def get_bie_fields(base_url):
     response.raise_for_status()
     return set(field['name'] for field in response.json())
 
+class NameMatchingSearchParams(BaseModel):
+    """Parameters for scientific name search"""
+    q: str = Field(..., description="Scientific name to search")
+
+class VernacularNameSearchParams(BaseModel):
+    """Parameters for vernacular/common name search"""
+    vernacularName: str = Field(..., description="Common/vernacular name to search")
+
 class OccurrenceSearchParams(BaseModel):
     """Pydantic model for ALA Occurrence Search API - matches real API structure while keeping user-friendly interface"""
     
@@ -342,13 +350,6 @@ class OccurrenceFacetsParams(BaseModel):
     has_images: Optional[bool] = Field(None, description="Filter for records with images")
     basis_of_record: Optional[str] = Field(None, description="Filter by the basis of record")
 
-class SpeciesGuidLookupParams(BaseModel):
-    """Pydantic model for GET /guid/{name} - Look up a taxon guid by name"""
-    name: str = Field(..., 
-        description="The name to search the taxon guid",
-        examples=["kangaroo", "Macropus rufus", "koala", "Phascolarctos cinereus"]
-    )
-
 class SpeciesImageSearchParams(BaseModel):
     """Pydantic model for GET /imageSearch/{id} - Search for a taxon with images"""
     id: str = Field(...,
@@ -464,36 +465,6 @@ class OccurrenceTaxaCountParams(BaseModel):
         examples=["\n", ",", "|"]
     )
 
-class TaxaCountHelper(BaseModel):
-    """User-friendly helper for counting taxa - converts common queries to GUIDs"""
-    
-    # User-friendly parameters
-    species_names: Optional[List[str]] = Field(None,
-        description="List of scientific names to count",
-        examples=[["Phascolarctos cinereus", "Macropus rufus"], ["Eucalyptus globulus"]]
-    )
-    
-    common_names: Optional[List[str]] = Field(None,
-        description="List of common names to count", 
-        examples=[["koala", "kangaroo"], ["blue gum"]]
-    )
-    
-    # Filter parameters
-    state: Optional[str] = Field(None,
-        description="Australian state to filter by",
-        examples=["Queensland", "New South Wales"]
-    )
-    
-    year: Optional[int] = Field(None,
-        description="Year to filter by",
-        examples=[2020, 2023]
-    )
-    
-    basis_of_record: Optional[str] = Field(None,
-        description="Type of record to filter by",
-        examples=["HumanObservation", "PreservedSpecimen"]
-    )
-
 def map_params_to_model(resolved_params: dict, model_class: Type[BaseModel]) -> Tuple[BaseModel, List[str]]:
     model_fields = model_class.model_fields
     missing_required = []
@@ -536,6 +507,20 @@ class ALA:
                 value = (yaml.safe_load(f) or {}).get(key, default)
         return value if value is not None else default
  
+    def search_scientific_name(self, params: NameMatchingSearchParams) -> dict:
+        """Search for a scientific name using name matching API."""
+        query_params = {"q": params.q}
+        query_string = urlencode(query_params)
+        url = f"{self.ala_api_base_url}/namematching/api/search?{query_string}"
+        return self.execute_request(url)
+
+    def search_vernacular_name(self, params: VernacularNameSearchParams) -> dict:
+        """Search for a vernacular/common name using name matching API."""
+        query_params = {"vernacularName": params.vernacularName}
+        query_string = urlencode(query_params)
+        url = f"{self.ala_api_base_url}/namematching/api/searchByVernacularName?{query_string}"
+        return self.execute_request(url)
+
     def build_occurrence_url(self, params: OccurrenceSearchParams) -> str:
         """Build occurrence search URL"""
         param_dict = params.model_dump(exclude_none=True, by_alias=True)
@@ -710,11 +695,6 @@ class ALA:
         # Build the final URL
         query_string = urlencode(api_params, doseq=True, quote_via=requests.utils.quote)
         return f"{self.ala_api_base_url}/occurrences/occurrences/facets?{query_string}"
-
-    def build_species_guid_lookup_url(self, params: SpeciesGuidLookupParams) -> str:
-        """Build URL for GET /guid/{name}"""
-        encoded_name = requests.utils.quote(params.name, safe='')
-        return f"{self.ala_api_base_url}/species/guid/{encoded_name}"
 
     def build_species_image_search_url(self, params: SpeciesImageSearchParams) -> str:
         """Build URL for GET /imageSearch/{id}"""

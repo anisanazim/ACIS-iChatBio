@@ -52,12 +52,38 @@ CRITICAL RULES:
    - "in 2021" -> year="2021"
    - "since 2015" -> year="2015+"
 
-3. For simple occurrence queries with common names, you can proceed WITHOUT scientific name resolution:
-   - "Show me koala occurrences" -> {"q": "koala"} (no resolution needed)
-   - "Find wombat records" -> {"q": "wombat"} (no resolution needed)
-   - "Kangaroo sightings" -> {"q": "kangaroo"} (no resolution needed)
+3. SPECIES NAME EXTRACTION - ALWAYS USE "q" PARAMETER:
+   - For ANY species query (common, scientific name, OR LSID), use the "q" parameter
+   - The resolver will automatically populate both "lsid" and "id" fields
+   - Pass names/LSIDs EXACTLY as the user provides them
+   - Extract ONLY ONE identifier (common name OR scientific name), NOT BOTH
+   - Prefer the scientific name if provided
+   - DO NOT combine them like "Common Name (Scientific Name)"
+   
+   Examples:
+   - "Show me Tasmanian Devil occurrences" -> {"q": "Tasmanian Devil"}
+   - "Find Sarcophilus harrisii records" -> {"q": "Sarcophilus harrisii"}
+   - "Tasmanian Devil (Sarcophilus harrisii) data" -> {"q": "Sarcophilus harrisii"}  (prefer scientific!)
+   - "Show me koala occurrences" -> {"q": "koala"}
+   - "Distribution of wombat" -> {"q": "wombat"}
+   - "Image of Phascolarctos cinereus" -> {"q": "Phascolarctos cinereus"}
+   - "Distribution of https://biodiversity.org.au/afd/taxa/123..." -> {"q": "https://..."}
+   - "Image for https://biodiversity.org.au/afd/taxa/456..." -> {"q": "https://..."}
+   
+   DO NOT do this:
+    {"species_name": ["Phascolarctos cinereus"]} when user said "koala"
+    Pre-resolving common names to scientific names
+    Using different fields like "species_name" or "common_name" for species
+    {"q": "Tasmanian Devil (Sarcophilus harrisii)"}
+    {"q": "koala (Phascolarctos cinereus)"}
 
-4. PRESERVE FULL LSIDs: If the query contains a full LSID URL (https://biodiversity.org.au/afd/taxa/...),
+4. Only mark scientific_name as unresolved if:
+   - The query is complex or ambiguous
+   - Multiple species might match
+   - You genuinely cannot determine what species the user wants
+   - NOT because you don't know the scientific name (resolver handles that!)
+
+5. PRESERVE FULL LSIDs: If the query contains a full LSID URL (https://biodiversity.org.au/afd/taxa/...),
    preserve it EXACTLY as-is in the 'q' parameter. DO NOT extract just the UUID part.
    Examples:
    - "Distribution of https://biodiversity.org.au/afd/taxa/00017b7e-89b3-4916-9c77-d4fbc74bdef6" 
@@ -65,41 +91,59 @@ CRITICAL RULES:
    - "Spatial data for https://biodiversity.org.au/afd/taxa/12345-abcd-..." 
      -> {"q": "https://biodiversity.org.au/afd/taxa/12345-abcd-..."}
 
-5. Only mark scientific_name as unresolved if:
-   - The query is complex or ambiguous
-   - Multiple species might match
-   - User specifically asks for scientific details
-   - You genuinely cannot determine the species
 
-6. If any parameter (including scientific_name, location, or temporal) is ambiguous or incomplete,
+7. If any parameter (including scientific_name, location, or temporal) is ambiguous or incomplete,
    mark it as unresolved and explain the reason in 'clarification_reason'.
 
-7. Extract spatial parameters:
+8. Extract spatial parameters:
    - "in Queensland" -> fq=["state:Queensland"]
    - "New South Wales" -> fq=["state:New South Wales"]
 
-8. Extract taxonomic parameters:
+9. Extract taxonomic parameters:
    - "family Macropodidae" -> family="Macropodidae"
    - "genus Eucalyptus" -> genus="Eucalyptus"
 
-9. FACET ANALYSIS DETECTION & EXTRACTION:
-   TRIGGER WORDS for facet analysis include:
-   - "breakdown", "break down", "distribution", "analyze", "analysis"
-   - "which [categories]", "what [types]", "how many", "show me", "list"
+10. FACET ANALYSIS vs TAXA COUNT - CRITICAL DISTINCTION:
+
+   USE FACETS (get_occurrence_breakdown) when user wants BREAKDOWN BY CATEGORIES:
+   TRIGGER WORDS:
+   - "breakdown", "break down", "distribution across", "analyze", "analysis"
+   - "in EACH [category]", "by [category]", "across [categories]"
    - "most common", "top X", "major", "types of"
-   - "groups", "which groups", "what groups" 
+   - "which [categories]", "what [types]"
+   
+   Examples that need FACETS:
+   - "How many koala records in EACH state?" -> facets=["state"]
+   - "Break down by year" -> facets=["year"]
+   - "Top 5 species in Queensland" -> facets=["species"]
+   - "Distribution across institutions" -> facets=["institution_code"]
 
-   FACET FIELD MAPPING:
+   USE TAXA COUNT (get_occurrence_taxa_count) when user wants SINGLE TOTAL:
+   TRIGGER WORDS:
+   - "count", "how many", "total", "number of"
+   - "in [single location]" (NOT "in each")
+   - "sightings of", "records for", "occurrences of"
+   
+   Examples that need TAXA COUNT:
+   - "Count sightings in Queensland of Macropus rufus" -> NO facets
+   - "How many koala records total?" -> NO facets
+   - "Total occurrences in Victoria" -> NO facets
+   - "Count wombats in NSW" -> NO facets
+
+   KEY RULE: If query mentions "EACH" or wants multiple categories -> use facets
+             If query wants single total for one location -> NO facets, just filters
+
+   FACET FIELD MAPPING (only use when breakdown is needed):
    - "kingdom/kingdoms/groups/taxa/types/species groups"    -> facets=["kingdom"]
-   - "state/states/location"                                -> facets=["state"]
-   - "species"                                             -> facets=["species"]
-   - "year/years/decade/decades/time"                      -> facets=["year"]
-   - "class/classes"                                        -> facets=["class"]
-   - "family/families"                                     -> facets=["family"]
-   - "institution/institutions/collecting"                 -> facets=["institution_code"]
-   - "record/records/types"                                -> facets=["basis_of_record"]
+   - "state/states/location/in each state"                  -> facets=["state"]
+   - "species/in each species"                              -> facets=["species"]
+   - "year/years/decade/decades/time/by year"               -> facets=["year"]
+   - "class/classes"                                         -> facets=["class"]
+   - "family/families"                                       -> facets=["family"]
+   - "institution/institutions/collecting"                   -> facets=["institution_code"]
+   - "record/records/types/basis of record"                  -> facets=["basis_of_record"]
 
-10. SPATIAL COORDINATES EXTRACTION:
+11. SPATIAL COORDINATES EXTRACTION:
     - Extract city coordinates and radius for spatial queries:
       - "Brisbane" -> lat=-27.47, lon=153.03
       - "Sydney" -> lat=-33.87, lon=151.21
@@ -107,12 +151,12 @@ CRITICAL RULES:
       - "Melbourne" -> lat=-37.81, lon=144.96
       - "within X km" -> radius=X
 
-11. FACET PARAMETERS:
+12. FACET PARAMETERS:
     - "top X" -> flimit=X, fsort="count"
     - "most common" -> fsort="count"
     - "imaged species" -> has_images=true
 
-12. STATE EXTRACTION:
+13. STATE EXTRACTION:
     - "Queensland/QLD" -> state="Queensland"
     - "New South Wales/NSW" -> state="New South Wales"
     - "Victoria/VIC" -> state="Victoria"
@@ -241,7 +285,7 @@ Query: "How many records for koala in Queensland?"
 Response:  
 {
   "params": {
-    "species_name": ["Phascolarctos cinereus"],
+    "q": "koala",
     "fq": ["state:Queensland"]
   },
   "unresolved_params": [],
@@ -254,7 +298,7 @@ Query: "Count occurrences of Eucalyptus post 2015"
 Response:  
 {
   "params": {
-    "species_name": ["Eucalyptus"],
+    "q": "Eucalyptus",
     "year": "2015+"
   },
   "unresolved_params": [],
@@ -267,19 +311,19 @@ Query: "Show me an image of the Tasmanian Tiger"
 Response:  
 {
   "params": {
-    "species_name": "Thylacinus cynocephalus"
+    "q": "Tasmanian Tiger"
   },
   "unresolved_params": [],
   "clarification_needed": false,
   "clarification_reason": "",
-  "artifact_description": "Species image for Thylacinus cynocephalus"
+  "artifact_description": "Species image for Tasmanian Tiger"
 }
 
 Query: "Species image for https://biodiversity.org.au/afd/taxa/7e6e134b-2bc7-43c4-b23a-6e3f420f57ad"  
 Response:  
 {
   "params": {
-    "id": "https://biodiversity.org.au/afd/taxa/7e6e134b-2bc7-43c4-b23a-6e3f420f57ad"
+    "q": "https://biodiversity.org.au/afd/taxa/7e6e134b-2bc7-43c4-b23a-6e3f420f57ad"
   },
   "unresolved_params": [],
   "clarification_needed": false,

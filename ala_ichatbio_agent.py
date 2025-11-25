@@ -41,8 +41,8 @@ class UnifiedALAParams(BaseModel):
 
 from ala_logic import (
     ALA, 
-    OccurrenceSearchParams, OccurrenceFacetsParams, OccurrenceTaxaCountParams, TaxaCountHelper,
-    SpeciesGuidLookupParams, SpeciesImageSearchParams, SpeciesBieSearchParams,
+    OccurrenceSearchParams, OccurrenceFacetsParams, OccurrenceTaxaCountParams,
+    SpeciesImageSearchParams, SpeciesBieSearchParams,
     SpatialDistributionMapParams
 )
 
@@ -65,7 +65,7 @@ class ALAiChatBioAgent:
 
     def __init__(self):
         self.ala_logic = ALA()
-       
+        self.resolver = ALAParameterResolver(self.ala_logic)
             
     async def create_research_plan(self, request: str, species_names: list[str]) -> ResearchPlan:
         parser = JsonOutputParser(pydantic_object=ResearchPlan)
@@ -81,19 +81,27 @@ Analyze each query and create a JSON execution plan describing:
 
 Available Tools:
 - search_species_occurrences: Returns ACTUAL occurrence records (individual sightings with dates, coordinates, collectors). Use for: "show me occurrences", "find sightings", "list observations"
-- get_occurrence_breakdown: Returns ANALYTICAL COUNTS and breakdowns by categories (facets). Use for: "how many in each state", "breakdown by year", "count by category", "distribution across", "top X species"
-- get_occurrence_taxa_count: Get TOTAL record counts for specific species (just numbers). Use for: "how many records for koala", "count of species X", "total occurrences"
+- get_occurrence_breakdown: Returns ANALYTICAL COUNTS and breakdowns by categories (facets). Use for: "how many in EACH state", "breakdown by year", "distribution ACROSS categories", "top X species". ONLY use when user wants counts for MULTIPLE categories, not single totals.
+- get_occurrence_taxa_count: Get TOTAL record counts for specific species (single number). Use for: "how many records", "count sightings", "total occurrences", "count in [single location]". Use when user wants ONE TOTAL NUMBER.
 - lookup_species_info: Get comprehensive species profiles, taxonomy, and metadata (BIE search). Use for: "tell me about species", "what is", "taxonomy of"
 - get_species_distribution: Get expert distribution maps and geographic range data. Use for: "where does it live", "distribution map", "geographic range"
 - get_species_images: Retrieve primary images for Australian species. Use for: "show me a photo", "image of species", "what does it look like"
 - finish: Call when the request is successfully completed
 
 Query types:
-- singlespecies: Single species info
-- comparison: Compare species
+- singlespecies: Single species queries (occurrences, counts, info about ONE species)
+- comparison: Compare multiple species
 - conservation: Conservation status queries
-- distribution: Geographic distribution/habitat
-- taxonomy: Classification info
+- distribution: Geographic distribution/habitat/range maps (where species LIVES, not where records are)
+- taxonomy: Classification info, taxonomic relationships
+
+**Query Type Selection Examples:**
+- "Count sightings in Queensland" → singlespecies (counting records for one species)
+- "Show koala occurrences" → singlespecies (finding records)
+- "How many in each state" → singlespecies (still about one species' records)
+- "Where do koalas live?" → distribution (geographic range/habitat)
+- "Distribution map for wombat" → distribution (expert range data)
+- "Compare koala vs wombat" → comparison (multiple species)
 
 Tool priorities (USE ONLY THESE TWO):
 - must_call: Essential tools to answer the user's explicit request. ALL must_call tools will execute in sequence. If ANY must_call tool fails, the entire request fails.
@@ -105,18 +113,26 @@ Tool priorities (USE ONLY THESE TWO):
 - If user asks for multiple things, mark them ALL as must_call
 
 **Critical Query Pattern Rules:**
-1. "How many X in EACH Y" → must_call get_occurrence_breakdown (returns counts per category)
-2. "Show me X occurrences" → must_call search_species_occurrences (returns actual records)
-3. "How many X records" (no "each") → must_call get_occurrence_taxa_count (returns single total)
+1. "Count in [single location]" → must_call get_occurrence_taxa_count (single total)
+2. "How many X in EACH Y" → must_call get_occurrence_breakdown (counts per category)
+3. "Show me X occurrences" → must_call search_species_occurrences (actual records)
 4. "Break down by X" or "distribution across X" → must_call get_occurrence_breakdown
 5. "Tell me about X and show Y" → BOTH are must_call (user wants both)
 
+**Key Distinction - Taxa Count vs Breakdown:**
+- "Count sightings in Queensland" → get_occurrence_taxa_count (one location = one number)
+- "Count sightings in EACH state" → get_occurrence_breakdown (multiple categories)
+- "How many koala records?" → get_occurrence_taxa_count (total)
+- "How many koala records by year?" → get_occurrence_breakdown (breakdown)
+
 **Examples:**
-- "How many kangaroo records in each state?" → get_occurrence_breakdown (must_call only)
-- "Show me koala occurrences" → search_species_occurrences (must_call only)
-- "Tell me about koalas" → lookup_species_info (must_call), get_species_images (optional bonus)
+- "Count sightings in Queensland of Macropus rufus" → get_occurrence_taxa_count (must_call)
+- "How many kangaroo records in each state?" → get_occurrence_breakdown (must_call)
+- "Show me koala occurrences" → search_species_occurrences (must_call)
+- "Total koala records in Victoria" → get_occurrence_taxa_count (must_call)
+- "Break down wombat records by year" → get_occurrence_breakdown (must_call)
+- "Tell me about koalas" → lookup_species_info (must_call), get_species_images (optional)
 - "Show koala occurrences AND their distribution" → search_species_occurrences (must_call), get_species_distribution (must_call)
-- "How many koala records?" → get_occurrence_taxa_count (must_call), get_species_images (optional)
 
 Respond ONLY with valid JSON matching the ResearchPlan Pydantic model.
 """),
@@ -307,117 +323,6 @@ Create the execution plan.
                 await process.log("Error during API request", data={"error": str(e)})
                 await context.reply(f"I encountered an error while retrieving taxa occurrence counts: {e}")
 
-    async def convert_species_to_guids(self, names: List[str]) -> Dict[str, str]:
-        guid_map = {}
-        for name in names:
-            try:
-                params = SpeciesGuidLookupParams(name=name)
-                url = self.ala_logic.build_species_guid_lookup_url(params)
-                result = self.ala_logic.execute_request(url)
-                guid = None
-                if isinstance(result, list):
-                    for entry in result:
-                        if isinstance(entry, dict):
-                            guid = (
-                                entry.get('taxonConceptID') or
-                                entry.get('guid') or
-                                entry.get('acceptedIdentifier') or
-                                entry.get('identifier')
-                            )
-                            if guid:
-                                break
-                elif isinstance(result, dict):
-                    guid = (
-                        result.get('taxonConceptID') or
-                        result.get('guid') or
-                        result.get('acceptedIdentifier') or
-                        result.get('identifier')
-                    )
-                
-                if guid and guid.startswith("https://biodiversity.org.au/afd/taxa/"):
-                    lsid = "urn:lsid:biodiversity.org.au:afd.taxon:" + guid.rsplit("/", 1)[-1]
-                    guid_map[name] = lsid
-                elif guid:
-                    guid_map[name] = guid
-                else:
-                    print(f"Warning: No GUID found for '{name}' in API response: {result}")
-            except Exception as e:
-                print(f"Warning: Could not find GUID for '{name}'. Skipping. Error: {e}")
-        return guid_map
-
-    async def get_taxa_counts(self, params: TaxaCountHelper) -> dict:
-        """
-        Orchestrates getting taxa counts from user-friendly names.
-        """
-        names_to_lookup = (params.species_names or []) + (params.common_names or [])
-        if not names_to_lookup:
-            raise ValueError("You must provide at least one species or common name.")
-
-        # Step 1: Call the worker function to convert names to GUIDs
-        guid_map = await self.convert_species_to_guids(names_to_lookup)
-        
-        all_guids = list(guid_map.values())
-        if not all_guids:
-            raise ValueError("Could not resolve any of the provided names to a valid GUID.")
-
-        # Step 2: Construct filter queries (fq)
-        fq_filters = []
-        if params.state:
-            fq_filters.append(f"state:{params.state}")
-        if params.year:
-            fq_filters.append(f"year:{params.year}")
-        if params.basis_of_record:
-            fq_filters.append(f"basis_of_record:{params.basis_of_record}")
-
-        # Step 3: Build the final parameters for the API call
-        taxa_count_params = OccurrenceTaxaCountParams(
-            guids="\n".join(all_guids),
-            fq=fq_filters if fq_filters else None
-        )
-        
-        # Step 4: Build the URL and execute the request
-        url = self.ala_logic.build_occurrence_taxa_count_url(taxa_count_params)
-        return self.ala_logic.execute_request(url), url
-    
-    async def run_user_friendly_taxa_count(self, context, params: TaxaCountHelper):
-        """
-        Workflow for the user-friendly taxa count helper.
-        This method calls the high-level orchestrator in the logic layer.
-        """
-        name_list = (params.species_names or []) + (params.common_names or [])
-        query_description = f"for '{', '.join(name_list)}'"
-        filters = []
-        if params.state:
-            filters.append(f"state: {params.state}")
-        if params.year:
-            filters.append(f"year: {params.year}")
-        if params.basis_of_record:
-            filters.append(f"basis of record: {params.basis_of_record}")
-        if filters:
-            query_description += " with filters: " + ", ".join(filters)
-
-        async with context.begin_process(f"Counting occurrences {query_description}") as process:
-            await process.log("User-friendly taxa count parameters", data=params.model_dump(exclude_defaults=True))
-
-            try:
-                # Now get both the data and URL from the logic
-                raw_response, api_url = await self.ala_logic.get_taxa_counts(params)
-                await process.log("Successfully retrieved taxa count data.", data=raw_response)
-                total_occurrences = sum(int(count) for count in raw_response.values() if isinstance(count, (int, float)))
-                taxa_with_records = sum(1 for count in raw_response.values() if isinstance(count, (int, float)) and count > 0)
-                await process.create_artifact(
-                    mimetype="application/json",
-                    description=f"Taxa occurrence counts - {total_occurrences:,} total occurrences.",
-                    uris=[api_url],
-                    content=json.dumps(raw_response).encode('utf-8'),
-                    metadata={"total_occurrences": total_occurrences, "taxa_counted": taxa_with_records}
-                )
-                await context.reply(f"Found a total of {total_occurrences:,} occurrence records for the requested species with the specified filters.")
-
-            except (ValueError, ConnectionError) as e:
-                await process.log("Error during taxa count workflow", data={"error": str(e)})
-                await context.reply(f"I encountered an error while trying to count the occurrences: {e}")
-        
     async def run_species_image_search(self, context, params: SpeciesImageSearchParams):
         """
         Workflow for searching and fetching the first available image for a species.
@@ -775,12 +680,9 @@ Create the execution plan.
             user_query=raw_query, 
             response_model=ALASearchResponse
         )
+        # Step 2: Resolve unresolved parameters (using shared resolver)
+        resolved = await self.resolver.resolve_unresolved_params(extracted)  # ← Use self.resolver
         
-        # Step 2: Resolve unresolved parameters (including scientific_name, lsid)
-        resolver = ALAParameterResolver(self.ala_logic.ala_api_base_url)
-        resolved = await resolver.resolve_unresolved_params(extracted)
-        
-        # Return resolved structured parameters ready for API consumption
         return resolved
 
 
@@ -934,6 +836,25 @@ class UnifiedALAReActAgent(IChatBioAgent):
             except Exception as e:
                 return {"success": False, "message": f"Error processing taxa count: {e}"}
 
+        async def _get_occurrence_taxa_count(resolved_obj):
+            """Get total count of occurrence records for species"""
+            lsid = resolved_obj.params.get('lsid')
+            if not lsid:
+                return {"success": False, "message": "No LSID available for taxa count. Species resolution may have failed."}
+            try:
+                # Extract filters if present
+                fq = resolved_obj.params.get('fq', [])
+                # Build params for taxa count API
+                params = OccurrenceTaxaCountParams(
+                    guids=lsid,
+                    fq=fq if fq else None
+                )
+                await self.workflow_agent.run_get_occurrence_taxa_count(context, params)
+                return {"success": True, "message": "Retrieved taxa count"}
+                
+            except Exception as e:
+                return {"success": False, "message": f"Error processing taxa count: {str(e)}"}
+                  
         async def _finish(summary: str):
             """Mark completion"""
             await context.reply(summary)
