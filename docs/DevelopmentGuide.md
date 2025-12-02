@@ -15,10 +15,11 @@ Adding a new tool involves four main steps:
 
 In `ala_logic.py` (or the relevant models module), define a parameter model for your new tool:
 
+```python
 class NewToolParams(BaseModel):
-param1: str = Field(..., description="Description of param1")
-param2: Optional[int] = Field(None, description="Description of param2")
-
+    param1: str = Field(..., description="Description of param1")
+    param2: Optional[int] = Field(None, description="Description of param2")
+```
 
 Use required fields for mandatory parameters and `Optional[...]` for non-required ones.
 
@@ -26,16 +27,17 @@ Use required fields for mandatory parameters and `Optional[...]` for non-require
 
 In `ala_logic.py`, add a URL builder that turns your params into a fully encoded URL:
 
+```python
 def build_newtool_url(self, params: NewToolParams) -> str:
-query_params = {
-"param1": params.param1,
-}
-if params.param2 is not None:
-query_params["param2"] = params.param2
+    query_params = {
+        "param1": params.param1,
+    }
+    if params.param2 is not None:
+        query_params["param2"] = params.param2
 
-query_string = urlencode(query_params)
-return f"{self.ala_api_base_url}/newEndpoint?{query_string}"
-
+    query_string = urlencode(query_params)
+    return f"{self.ala_api_base_url}/newEndpoint?{query_string}"
+```
 
 All encoding and query construction should live here, not in the tool closure.
 
@@ -43,20 +45,21 @@ All encoding and query construction should live here, not in the tool closure.
 
 In `ala_ichatbio_agent.py`, create an async method that runs the new tool:
 
+```python
 async def run_newtool(self, context, params: NewToolParams):
-async with context.begin_process("Processing new tool") as process:
-url = self.alalogic.build_newtool_url(params)
-result = self.alalogic.execute_request(url)
+    async with context.begin_process("Processing new tool") as process:
+        url = self.alalogic.build_newtool_url(params)
+        result = self.alalogic.execute_request(url)
 
-    await process.create_artifact(
-        mimetype="application/json",
-        description="New tool results",
-        uris=[url],
-        content=json.dumps(result).encode("utf-8"),
-    )
+        await process.create_artifact(
+            mimetype="application/json",
+            description="New tool results",
+            uris=[url],
+            content=json.dumps(result).encode("utf-8"),
+        )
 
-    await context.reply("New tool completed successfully.")
-
+        await context.reply("New tool completed successfully.")
+```
 
 This method should:
 
@@ -67,35 +70,37 @@ This method should:
 
 ### 1.4 Add a Tool Closure and Register It
 
-In the agent’s tool map, add a closure that validates input, instantiates the params model, and calls the workflow method:
+In the agent's tool map, add a closure that validates input, instantiates the params model, and calls the workflow method:
 
+```python
 async def newtool(resolved_obj):
-# Description: What this tool does and when it should be used.
-param1 = resolved_obj.params.get("param1")
-if not param1:
-return {"success": False, "message": "Missing param1"}
+    """Description: What this tool does and when it should be used."""
+    param1 = resolved_obj.params.get("param1")
+    if not param1:
+        return {"success": False, "message": "Missing param1"}
 
-try:
-    params = NewToolParams(param1=param1)
-    await self.workflow_agent.run_newtool(context, params)
-    return {"success": True}
-except Exception as e:
-    return {"success": False, "message": str(e)}
-
+    try:
+        params = NewToolParams(param1=param1)
+        await self.workflow_agent.run_newtool(context, params)
+        return {"success": True}
+    except Exception as e:
+        return {"success": False, "message": str(e)}
+```
 
 Register it in the tool map:
 
+```python
 tool_map["newtool"] = newtool
-
+```
 
 ## 2. Update the Planning Prompt
 
 To make the planner aware of the new tool:
 
-- Add `newtool` to the “Available Tools” section of the planning prompt, describing:
+- Add `newtool` to the "Available Tools" section of the planning prompt, describing:
   - When it should be used.
   - What kind of query patterns map to it.
-- Add 1–2 concrete example queries that should trigger `newtool` in the planner’s examples section.
+- Add 1–2 concrete example queries that should trigger `newtool` in the planner's examples section.
 
 This helps the LLM choose the new tool reliably and avoid conflicts with existing tools.
 
@@ -111,7 +116,7 @@ If your new tool requires additional parameters that are not currently extracted
 
 For example, add a new bullet:
 
-- “NEW PARAMETER TYPE – when the query mentions X pattern, extract `new_param` with value Y.”
+- "NEW PARAMETER TYPE – when the query mentions X pattern, extract `new_param` with value Y."
 
 Then adjust the Pydantic response model if needed to include the new field.
 
@@ -131,15 +136,15 @@ Key debugging practices:
 
 Common issues and checks:
 
-- Wrong tool selected:
+- **Wrong tool selected:**
   - Refine the planning prompt with more explicit examples.
   - Add negative examples if necessary.
-- LSID not resolved:
+- **LSID not resolved:**
   - Inspect resolver logs and ALA name-matching responses.
   - Try more specific common names or direct scientific names.
-- 400 Bad Request:
+- **400 Bad Request:**
   - Check for malformed query parameters, invalid LSID formats, or unencoded special characters.
-- Pydantic validation errors:
+- **Pydantic validation errors:**
   - Ensure required fields are provided and types match the model.
   - Mark non-required fields as optional.
 
@@ -160,15 +165,16 @@ Monitor logs and artifacts in the UI to confirm tools, URLs, and outputs.
 
 Set up automated tests (e.g., with `pytest`) to validate core components:
 
-- Parameter extractor: given a query, returns expected structured parameters.
-- Parameter resolver: resolves common/scientific names to correct LSIDs.
-- Logic layer: builds valid URLs and handles typical responses.
-- Tools: mock ALA responses and assert correct artifacts and messages.
+- **Parameter extractor:** given a query, returns expected structured parameters.
+- **Parameter resolver:** resolves common/scientific names to correct LSIDs.
+- **Logic layer:** builds valid URLs and handles typical responses.
+- **Tools:** mock ALA responses and assert correct artifacts and messages.
 
 Example invocation:
 
+```bash
 pytest tests/
-
+```
 
 Consider adding unit tests for each new tool and integration tests for full query flows.
 
@@ -176,10 +182,10 @@ Consider adding unit tests for each new tool and integration tests for full quer
 
 When modifying or extending the system, keep in mind:
 
-- Generic common names may not resolve (e.g., “kangaroo” vs “Red Kangaroo”).
-- The planner may occasionally pick a facet-based tool instead of a count-based tool for ambiguous “how many” queries.
-- Temporal extraction can miss nuanced phrases (e.g., “from 2020 onward”).
-- Comparison queries (e.g., “compare koalas and wombats”) are not yet fully supported.
+- Generic common names may not resolve (e.g., "kangaroo" vs "Red Kangaroo").
+- The planner may occasionally pick a facet-based tool instead of a count-based tool for ambiguous "how many" queries.
+- Temporal extraction can miss nuanced phrases (e.g., "from 2020 onward").
+- Comparison queries (e.g., "compare koalas and wombats") are not yet fully supported.
 - Cache is in-memory per agent instance and does not persist across restarts.
 
 Design new features and prompts with these constraints in mind, or plan incremental improvements to address them.
