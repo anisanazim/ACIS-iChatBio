@@ -1,267 +1,140 @@
-# Atlas of Living Australia (ALA) iChatBio Agent
+🌿 ALA iChatBio Agent
 
-This project is an AI agent designed to interact with the [Atlas of Living Australia (ALA)](https://ala.org.au/) API. It is built using the `ichatbio-sdk` and provides a conversational interface to search for biodiversity data, including species occurrences, taxonomic profiles, spatial distribution maps, and species lists.
+Natural-language biodiversity querying powered by the Atlas of Living Australia (ALA)
 
-## Table of Contents
-- [Key Features](#key-features)
-- [Project Structure](#project-structure)
-- [Setup and Installation](#setup-and-installation)
-- [Usage](#usage)
-    - [Running the iChatBio Server](#running-the-ichatbio-server)
-- [API Entrypoints](#api-entrypoints)
-- [Testing](#testing)
-- [Example User Interactions](#example-user-interactions)
+The ALA iChatBio Agent is an intelligent conversational agent built on the iChatBio framework.
+It allows users to query Australian biodiversity data using plain English, automatically resolving species names, constructing ALA API calls, and producing structured artifacts such as occurrence records, species profiles, and distribution data.
 
-## Key Features
-Now supports core ALA information needs via a ReAct agent model with multi-tool orchestration:
+This project integrates advanced LLM reasoning, ALA's public APIs, and a multi-step research workflow to deliver accurate, human-friendly biodiversity insights.
 
-- **Conversational Biodiversity Search**: Users can ask open-ended or highly specific questions about Australian biodiversity, and the agent dynamically selects the right API tool(s) to answer.
+✨ Key Features
 
-- **Dynamic Tool Routing**: Uses ReAct reasoning to choose between Occurrences, Taxonomy, Images, Distribution Maps, and Faceted Analysis based on query intent.
+🔍 Natural language to ALA API translation
 
-- **Enhanced Parameter Extraction**: Employs LLM-based and Pydantic-powered extraction to support inquiries with geographic, temporal, taxonomic, image, and category filters from natural language.
+🐾 Automatic species name resolution
+Common → Scientific → LSID, using Name Matching API
 
-- **Faceted Data Analytics**: Supports queries like “what kingdoms are within 10km of Brisbane?” or “breakdown by state/year/type”, with high-fidelity analytical responses and visual distribution maps.
+🧠 Research planning using an LLM with priority-based tool sequencing
 
-- **Multi-step Query Handling**: Combines data across Occurrence, Spatial, and Species APIs as needed in a single conversational flow.
+🛠️ 7 specialized biodiversity tools
+(occurrences, facets, taxa count, species info, distribution, images)
 
-## Current Production-Ready Tools (Entrypoints):
-Occurrence Records Search and Lookup
-Faceted Occurrence Breakdown (statistical/analytical queries)
-Taxonomic Information (species info and BIE search)
-Species Image Search
-Expert Distribution Range Mapping
-Species List Retrieval and Filtering
-This agent exposes comprehensive capabilities across four main ALA APIs:
+⚡ Smart caching for faster repeated queries
 
-### Occurrence API
-- **Occurrence Search**: Search for species occurrence records with natural language queries and advanced filtering
-- **Single Occurrence Lookup**: Retrieve a specific occurrence record by its UUID
-- **Occurrence Facets**: Get data breakdowns and insights from occurrence records using faceted analysis
-- **Taxa Count**: Get occurrence counts for specific taxa by their GUIDs/LSIDs
-- **Field Discovery**: Programmatically fetch a list of all searchable fields in the occurrence database
+🧩 Pydantic-validated parameter models
 
-### Species API
-- **Species GUID Lookup**: Look up taxon GUIDs by name - essential for linking species to occurrence data
-- **Species Image Search**: Search for taxa with images available - visual species information
-- **BIE Search**: Search the Biodiversity Information Explorer (BIE) for species and taxa
+📄 Rich artifact generation (JSON, metadata, process logs)
 
-### Spatial API
-- **Distribution by LSID**: Get expert distribution data for a taxon by its LSID
-- **Distribution Map Visualization**: Retrieve PNG map images showing species distribution ranges across Australia
+🌐 Async HTTP execution via aiohttp
 
-### Species List API
-- **Filter Species Lists**: Filter species lists by scientific names or data resource IDs
-- **Species List Details**: Get detailed information about specific species lists
-- **Species List Items**: Get species from specific lists with optional name filtering
-- **Distinct Field Values**: Get distinct values for fields across all species list items
+📁 Project Structure
+ALA-iChatBio-Agent/
+├── agent_server.py              # iChatBio server entry point
+├── ala_ichatbio_agent.py        # Main agent implementation + tool execution
+├── parameter_extractor.py       # LLM-based parameter extraction
+├── parameter_resolver.py        # Name → LSID resolution (with caching)
+├── ala_logic.py                 # ALA API logic + URL builders
+├── main_ala_logic.py            # Pydantic models for validation
+├── env.yaml                     # Environment variables
+├── requirements.txt             # Python dependencies
+└── README.md                    # This file
 
+⚙️ Installation
+Prerequisites
 
-## Project Structure
+Python 3.11+
 
-The agent is organized into four distinct files, each with a clear responsibility:
+pip
 
-- **`ala_logic.py`**: Handles ALA API access, builds dynamic requests, and structures parameter models.
+Virtual environment tool (venv or conda)
 
-- **`ala_ichatbio_agent.py`**: The workflow orchestrator. Orchestrates the core ReAct agent workflows, integrating parameter extraction, tool selection logic, and response formatting.
+OpenAI API key
 
-- **`agent_server.py`**: Serves the agent (as an iChatBio or API service); manages capability declarations and inbound request routing.
+1. Clone the repository
+git clone <repository-url>
+cd ALA-iChatBio-Agent
 
-- **`test_agent.py`**: Comprehensive test suite covering live scenarios and edge cases for all implemented tools.
-
-## Setup and Installation
-
-Follow these steps to set up and run the agent locally.
-
-**1. Clone the Repository**
-
-```bash
-git clone <your-repository-url>
-cd <your-repository-name>
-```
-
-**2. Create and Activate a Virtual Environment**
-It's highly recommended to use a virtual environment to manage dependencies.
-
-- On Windows:
-
-```bash
+2. Create and activate a virtual environment
 python -m venv venv
-.\venv\Scripts\activate
-```
+source venv/bin/activate   # Windows: venv\Scripts\activate
 
-- On macOS/Linux:
-
-```bash
-python3 -m venv venv
-source venv/bin/activate
-```
-
-**3. Install Dependencies**
-Create a file named `requirements.txt` with the following content:
-
-```
-ichatbio-sdk
-openai
-instructor
-requests
-pyyaml
-cloudscraper
-pytest
-pytest-asyncio
-```
-
-Then, install the dependencies using pip:
-
-```bash
+3. Install dependencies
 pip install -r requirements.txt
-```
 
-**4. Configure Environment Variables**
-The agent requires an OpenAI API key to understand natural language queries. Create a file named `env.yaml` in the root of the project and add your key:
+4. Configure environment
 
-```yaml
-# env.yaml
-OPENAI_API_KEY: "sk-..."
-ALA_API_URL: "https://api.ala.org.au"  # Optional, defaults to this value
-```
+Create an env.yaml file:
 
-## Usage
+OPENAI_API_KEY: "your-api-key"
+OPENAI_BASE_URL: "https://api.openai.com"
+ALA_API_BASE_URL: "https://api.ala.org.au"
 
-You can run the agent in two ways: as a full `iChatBio` server or using the test suite for validation.
-
-### Running the iChatBio Server
-
-To run the agent as a network service that the `iChatBio` platform can communicate with, use the `agent_server.py` script.
-
-```bash
+5. Run the agent server
 python agent_server.py
-```
 
-You should see output from `Uvicorn` indicating the server is running on `http://0.0.0.0:9999`.
+▶️ Quick Example
 
-To verify that the agent is running and discoverable, navigate to the following URL in your web browser:
-`http://localhost:9999/.well-known/agent.json`
+User:
 
-This will display the agent's `AgentCard` in JSON format.
+Count koala sightings in Queensland
 
-## API Entrypoints
+Agent internal steps:
 
-The agent exposes the following entrypoints across four ALA API categories:
+Extract parameters → { q: "koala", fq: ["state:Queensland"] }
 
-### Occurrence API Entrypoints
+Resolve species → Phascolarctos cinereus (LSID)
 
-| Entrypoint ID | Description | Parameters Model |
-| :-- | :-- | :-- |
-| `search_occurrences` | Search for species occurrence records in the ALA. | `OccurrenceSearchParams` |
-| `lookup_occurrence` | Get a single occurrence record by its UUID. | `OccurrenceLookupParams` |
-| `get_occurrence_facets` | Get data breakdowns and insights from occurrence records using facets. | `OccurrenceFacetsParams` |
-| `get_occurrence_taxa_count` | Get occurrence counts for specific taxa by their GUIDs/LSIDs. | `OccurrenceTaxaCountParams` |
-| `get_index_fields` | Get a list of all searchable fields in the occurrence database. | `NoParams` |
+Research planner selects → get_occurrence_taxa_count
 
-### Species API Entrypoints
+ALA API called → /occurrences/taxaCount?...
 
-| Entrypoint ID | Description | Parameters Model |
-| :-- | :-- | :-- |
-| `species_guid_lookup` | Look up a taxon GUID by name - essential for linking species to occurrence data. | `SpeciesGuidLookupParams` |
-| `species_image_search` | Search for taxa with images available - visual species information. | `SpeciesImageSearchParams` |
-| `species_bie_search` | Search the Biodiversity Information Explorer (BIE) for species and taxa. | `SpeciesBieSearchParams` |
+Returns → 15,234 records
 
-### Spatial API Entrypoints
+Agent Response:
 
-| Entrypoint ID | Description | Parameters Model |
-| :-- | :-- | :-- |
-| `list_distributions` | List all expert distributions available in the ALA spatial service. | `NoParams` |
-| `get_distribution_by_lsid` | Get expert distribution for a taxon by LSID. | `SpatialDistributionByLsidParams` |
-| `get_distribution_map` | Get PNG image for a distribution map by image ID. | `SpatialDistributionMapParams` |
+Found 15,234 occurrence records for koalas in Queensland.
 
-### Species List API Entrypoints
+📚 Full Documentation
 
-| Entrypoint ID | Description | Parameters Model |
-| :-- | :-- | :-- |
-| `filter_species_lists` | Filter species lists by scientific names or data resource IDs. | `SpeciesListFilterParams` |
-| `get_species_list_details` | Get detailed information about specific species lists. | `SpeciesListDetailsParams` |
-| `get_species_list_items` | Get species from specific lists with optional name filtering. | `SpeciesListItemsParams` |
-| `get_species_list_distinct_fields` | Get distinct values for a field across all species list items. | `SpeciesListDistinctFieldParams` |
-| `get_species_list_common_keys` | Get common keys (metadata) across multiple species lists. | `SpeciesListCommonKeysParams` |
+Detailed technical documentation is available in the /docs folder:
 
-## Testing
+Overview
 
-The project includes a comprehensive test suite that validates all API endpoints with real-world data.
+Architecture
 
-### Running Tests
+Core Components
 
-```bash
-# Run all tests
-pytest test_agent.py -v
+API Integration
 
-# Run specific test categories
-pytest test_agent.py -v -k "occurrence"
-pytest test_agent.py -v -k "species"
-pytest test_agent.py -v -k "spatial"
-pytest test_agent.py -v -k "species_list"
-```
+Setup & Installation
 
-### Test Coverage
+How It Works
 
-The test suite covers:
-- **Occurrence Search**: Using real species and location data
-- **Occurrence Facets**: Data breakdown and analysis capabilities
-- **Taxa Count**: Counting occurrences for specific GUIDs
-- **Species GUID Lookup**: Converting names to GUIDs
-- **Species Image Search**: Finding taxa with visual content
-- **BIE Search**: Comprehensive species database search
-- **Spatial Distributions**: Using real LSIDs and imageIds from ALA's distribution database
-- **Species Lists**: Filtering, details, items, and metadata operations
-- **Error Handling**: Network failures and invalid parameters
+Development Guide
 
-## Example User Interactions
+Troubleshooting
 
-Once deployed, users can interact with the agent using natural language:
+Appendix
 
-### Occurrence Queries
-- *"Find koala sightings in Queensland"* → `search_occurrences`
-- *"Show me the details for occurrence record abc123"* → `lookup_occurrence`
-- *"What are the data sources for bird observations in 2023?"* → `get_occurrence_facets`
-- *"How many records exist for Macropus rufus?"* → `get_occurrence_taxa_count`
+🧪 Testing
 
-### Species Information
-- *"What's the GUID for the Red Kangaroo?"* → `species_guid_lookup`
-- *"Find species with photos available"* → `species_image_search`
-- *"Search for eucalyptus species in the BIE"* → `species_bie_search`
+Manual queries and automated tests can be added.
+Run tests (if implemented):
 
-### Spatial Distribution
-- *"What species have distribution maps available?"* → `list_distributions`
-- *"Show me the distribution data for this species LSID"* → `get_distribution_by_lsid`
-- *"Can I see a map of where brush-tailed rabbit-rats live?"* → `get_distribution_map`
+pytest tests/
 
-### Species Lists
-- *"Find species lists that contain koalas"* → `filter_species_lists`
-- *"Show me details about the threatened species list dr781"* → `get_species_list_details`
-- *"What Acacia species are in the flora list?"* → `get_species_list_items`
-- *"What kingdoms are represented in the species lists?"* → `get_species_list_distinct_fields`
+🤝 Contributing
 
-## Architecture Notes
+Pull requests and issue submissions are welcome.
+Please ensure changes are documented and tested where appropriate.
 
-### API Integration Strategy
-- **Occurrences API**: Use `api.ala.org.au/occurrences` endpoints for occurrence data and faceted analysis
-- **Species API**: Use `api.ala.org.au/species` endpoints for taxonomic information and images
-- **Spatial API**: Use `api.ala.org.au/spatial-service` endpoints for distribution data and PNG maps
-- **Species Lists API**: Use `api.ala.org.au/specieslist` endpoints for curated species collections
-- **Error Handling**: Graceful fallbacks for network issues and missing data
-- **Authentication**: Currently uses public endpoints; easily extensible for API keys
+📬 Contact
 
-### Performance Considerations
-- Uses `cloudscraper` to handle potential bot detection
-- Implements proper async/await patterns for non-blocking API calls
-- Creates artifacts for large datasets to avoid message size limits
-- Supports both GET and POST requests for different API endpoints
-- Handles various response formats (JSON objects, arrays, binary images)
+Developer: Anisa Shaik
+Email: anisa.shaik@ufl.edu
 
-### Data Flow
-1. **User Query** → Natural language input processed by OpenAI
-2. **Parameter Extraction** → Structured parameters using Pydantic models
-3. **API Request** → HTTP requests to appropriate ALA endpoints
-4. **Response Processing** → JSON/binary data parsed and analyzed
-5. **Artifact Creation** → Large datasets stored as downloadable artifacts
-6. **User Response** → Human-friendly summary with actionable insights
+Issues: GitHub repository issue tracker
+
+📝 License
+
+(You may add MIT/Apache/GPL or leave blank)
