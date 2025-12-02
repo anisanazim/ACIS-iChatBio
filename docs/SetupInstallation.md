@@ -6,7 +6,7 @@ This section describes how to set up and run the ALA iChatBio Agent in a local d
 
 Before installing, ensure the following are available:
 
-- Python 3.11
+- Python 3.11+
 - `pip` (Python package manager)
 - A virtual environment tool (`venv` or conda)
 - An OpenAI API key for LLM-based components
@@ -15,9 +15,10 @@ Before installing, ensure the following are available:
 
 Clone the project and switch into its directory:
 
+```bash
 git clone <repository-url>
 cd ALA-iChatBio-Agent
-
+```
 
 Replace `<repository-url>` with the actual Git repository URL for your project.
 
@@ -25,26 +26,29 @@ Replace `<repository-url>` with the actual Git repository URL for your project.
 
 Create a fresh virtual environment to isolate dependencies:
 
+```bash
 python -m venv venv
-
+```
 
 Activate the environment:
 
-- On macOS/Linux:
-
+**On macOS/Linux:**
+```bash
 source venv/bin/activate
+```
 
-- On Windows:
-
+**On Windows:**
+```bash
 venv\Scripts\activate
-
+```
 
 ## 3. Install Dependencies
 
 Install all required Python packages using the provided requirements file:
 
+```bash
 pip install -r requirements.txt
-
+```
 
 This will pull in the core libraries such as Pydantic, OpenAI client, aiohttp, the iChatBio framework, and related dependencies.
 
@@ -52,22 +56,25 @@ This will pull in the core libraries such as Pydantic, OpenAI client, aiohttp, t
 
 Create an `env.yaml` file in the project root to configure API keys and base URLs. A typical configuration looks like:
 
+```yaml
 OPENAI_API_KEY: "your-api-key"
-OPENAI_BASE_URL: "https://api.openai.com" # or your proxy/base URL
+OPENAI_BASE_URL: "https://api.openai.com"  # or your proxy/base URL
 ALA_API_BASE_URL: "https://api.ala.org.au"
+```
 
-
+**Configuration Details:**
 - `OPENAI_API_KEY` is required for LLM-based parameter extraction and planning.
 - `OPENAI_BASE_URL` can point to the standard OpenAI endpoint or a proxy.
 - `ALA_API_BASE_URL` should normally point to the public ALA API host, but can be overridden for testing or proxying.
 
-Ensure this file is not committed to version control if it contains secrets.
+**Security Note:** Ensure this file is not committed to version control if it contains secrets.
 
 ## 5. Run the Agent Server
 
 Once dependencies and environment configuration are in place, start the agent server:
 
+```bash
 python agent_server.py
-
+```
 
 This command launches the iChatBio-based server that hosts the ALA iChatBio Agent, making it available to accept natural-language biodiversity queries and route them through the configured tools and ALA APIs.
