@@ -6,9 +6,9 @@ This section walks through the end-to-end flow of a user query inside the ALA iC
 
 A user starts by asking a natural-language question, such as:
 
-> “Count koala sightings in Queensland”  
-> “Where do koalas live?”  
-> “Show me a photo of a platypus”
+> "Count koala sightings in Queensland"  
+> "Where do koalas live?"  
+> "Show me a photo of a platypus"
 
 This free-text input is sent to the agent server, which hands it to the ALA iChatBio Agent workflow.
 
@@ -49,27 +49,28 @@ These enriched parameters are passed to the planner.
 
 The Research Planner decides which tools to use and in what order.
 
-- Input:
-  - User query text
-  - Resolved species information (names, LSIDs)
-  - Extracted filters and context
-- Output:
-  - A `ResearchPlan` containing:
-    - `query_type` (e.g., single species, multi-species, distribution, images)
-    - `species_mentioned`
-    - A list of `ToolPlan` entries with:
-      - `tool_name`
-      - `priority` (`must_call` or `optional`)
-      - A brief reasoning string
+**Input:**
+- User query text
+- Resolved species information (names, LSIDs)
+- Extracted filters and context
+
+**Output:**
+- A `ResearchPlan` containing:
+  - `query_type` (e.g., single species, multi-species, distribution, images)
+  - `species_mentioned`
+  - A list of `ToolPlan` entries with:
+    - `tool_name`
+    - `priority` (`must_call` or `optional`)
+    - A brief reasoning string
 
 The planner applies simple decision rules, for example:
 
-- “Count X in location” → `get_occurrence_taxa_count`
-- “How many X in each state/year?” → `get_occurrence_breakdown`
-- “Show X occurrences” → `search_species_occurrences`
-- “Tell me about X” → `lookup_species_info`
-- “Where does X live?” → `get_species_distribution`
-- “Show me a photo of X” → `get_species_images`
+- "Count X in location" → `get_occurrence_taxa_count`
+- "How many X in each state/year?" → `get_occurrence_breakdown`
+- "Show X occurrences" → `search_species_occurrences`
+- "Tell me about X" → `lookup_species_info`
+- "Where does X live?" → `get_species_distribution`
+- "Show me a photo of X" → `get_species_images`
 
 This plan governs the next phase.
 
@@ -77,10 +78,11 @@ This plan governs the next phase.
 
 The Tool Executor runs the tools defined in the research plan in a two-phase process.
 
-- Phase 1: execute all `must_call` tools
-  - If any `must_call` tool fails, stop execution and report an error or fallback message to the user.
-- Phase 2: execute all `optional` tools
-  - Failures in optional tools are logged but do not abort the workflow.
+**Phase 1:** Execute all `must_call` tools
+- If any `must_call` tool fails, stop execution and report an error or fallback message to the user.
+
+**Phase 2:** Execute all `optional` tools
+- Failures in optional tools are logged but do not abort the workflow.
 
 Each tool is implemented as a closure that has access to:
 
@@ -89,7 +91,7 @@ Each tool is implemented as a closure that has access to:
 - The workflow helper for running steps
 - The ALA logic layer for building URLs and executing HTTP calls
 
-Examples:
+**Examples:**
 
 - `get_occurrence_taxa_count` builds an `occurrences/taxaCount` URL with LSIDs and filters, executes it, and returns a total count.
 - `get_occurrence_breakdown` calls `occurrences/facets` with selected facets (e.g., state, year).
@@ -103,15 +105,15 @@ Each tool typically creates JSON artifacts with raw results and attaches human-r
 
 Under the hood, all tools rely on a shared ALA logic layer.
 
-- Responsibilities:
-  - Validate parameters with Pydantic models
-  - Build endpoint URLs for name matching, occurrences, species, distribution, and images
-  - Encode query parameters correctly
-  - Execute async HTTP requests (e.g., using `aiohttp`)
-  - Handle errors and retries
-  - Return parsed JSON data to tools
+**Responsibilities:**
+- Validate parameters with Pydantic models
+- Build endpoint URLs for name matching, occurrences, species, distribution, and images
+- Encode query parameters correctly
+- Execute async HTTP requests (e.g., using `aiohttp`)
+- Handle errors and retries
+- Return parsed JSON data to tools
 
-By centralizing this logic, tools can focus on “what” they need (counts, facets, records, distributions, images) instead of “how” to talk to the ALA APIs.
+By centralizing this logic, tools can focus on "what" they need (counts, facets, records, distributions, images) instead of "how" to talk to the ALA APIs.
 
 ## 7. Response Formatting
 
@@ -119,7 +121,7 @@ After tools complete, the agent assembles a final answer.
 
 - Combines outputs from must-call and optional tools
 - Generates:
-  - Natural-language summaries (e.g., “Found 15,234 occurrence records for koala in Queensland.”)
+  - Natural-language summaries (e.g., "Found 15,234 occurrence records for koala in Queensland.")
   - Structured artifacts (JSON with counts, facet breakdowns, occurrence records)
   - Links or references to maps and images where appropriate
 - Returns this combined result back to the user through the iChatBio interface.
