@@ -25,8 +25,7 @@ ALA-iChatBio-Agent/
 ├── ala_ichatbio_agent.py        # Main agent implementation + tool execution
 ├── parameter_extractor.py       # LLM-based parameter extraction
 ├── parameter_resolver.py        # Name → LSID resolution (with caching)
-├── ala_logic.py                 # ALA API logic + URL builders
-├── main_ala_logic.py            # Pydantic models for validation
+├── ala_logic.py                 # ALA API logic + URL builders + Pydantic models for validation
 ├── env.yaml                     # Environment variables
 ├── requirements.txt             # Python dependencies
 └── README.md                    # This file
