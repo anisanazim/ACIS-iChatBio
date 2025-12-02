@@ -99,15 +99,15 @@ Found 15,234 occurrence records for koalas in Queensland.
 
 Detailed technical documentation is available in the `/docs` folder:
 
-* Overview
-* Architecture
-* Core Components
-* API Integration
-* Setup & Installation
-* How It Works
-* Development Guide
-* Troubleshooting
-* Appendix
+- [Overview](docs/Overview.md)
+- [Architecture](docs/Architecture.md)
+- [Core Components](docs/CoreComponents.md)
+- [API Integration](docs/APIIntegration.md)
+- [Setup & Installation](docs/SetupInstallation.md)
+- [How It Works](docs/HowItWorks.md)
+- [Development Guide](docs/DevelopmentGuide.md)
+- [Troubleshooting](docs/Troubleshooting.md)
+- [Appendix](docs/Appendix.md)
 
 ## 🧪 Testing
 
