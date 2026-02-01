@@ -1,7 +1,61 @@
 # parameter_resolver.py
-from functools import cache
+from functools import lru_cache
 from typing import Optional, Dict
 from parameter_extractor import ALASearchResponse
+
+
+# Manual cache dictionaries for explicit cache tracking
+_scientific_name_cache = {}
+_vernacular_name_cache = {}
+
+
+# Module-level cache for name resolution (keyed by name only, ala_logic assumed singleton)
+def _cached_scientific_search_global(name: str):
+    """Global cached wrapper for scientific name searches with explicit cache tracking"""
+    # Check if in manual cache first
+    if name in _scientific_name_cache:
+        print(f"[Resolver CACHE] HIT for scientific name: '{name}' (returning cached result)")
+        return _scientific_name_cache[name]
+    
+    # Cache miss - call API
+    try:
+        print(f"[Resolver CACHE] MISS for scientific name: '{name}' (calling API)")
+        from ala_logic import NameMatchingSearchParams
+        params = NameMatchingSearchParams(q=name)
+        result = _ala_logic_ref.search_scientific_name(params)
+        # Store in cache
+        _scientific_name_cache[name] = result
+        print(f"[Resolver CACHE] API response cached for: '{name}'")
+        return result
+    except Exception as e:
+        print(f"[Resolver DEBUG] Exception in scientific search: {e}")
+        raise
+
+
+def _cached_vernacular_search_global(name: str):
+    """Global cached wrapper for vernacular name searches with explicit cache tracking"""
+    # Check if in manual cache first
+    if name in _vernacular_name_cache:
+        print(f"[Resolver CACHE] HIT for vernacular name: '{name}' (returning cached result)")
+        return _vernacular_name_cache[name]
+    
+    # Cache miss - call API
+    try:
+        print(f"[Resolver CACHE] MISS for vernacular name: '{name}' (calling API)")
+        from ala_logic import VernacularNameSearchParams
+        params = VernacularNameSearchParams(vernacularName=name)
+        result = _ala_logic_ref.search_vernacular_name(params)
+        # Store in cache
+        _vernacular_name_cache[name] = result
+        print(f"[Resolver CACHE] API response cached for: '{name}'")
+        return result
+    except Exception as e:
+        print(f"[Resolver DEBUG] Exception in vernacular search: {e}")
+        raise
+
+
+# Global reference to ala_logic (set once during resolver init)
+_ala_logic_ref = None
 
 
 class ALAParameterResolver:
@@ -12,44 +66,10 @@ class ALAParameterResolver:
 
     def __init__(self, ala_logic):
         self.ala_logic = ala_logic
-        # Create cached versions of the logic methods
-        self._cached_scientific_search = cache(self._search_scientific_wrapper)
-        self._cached_vernacular_search = cache(self._search_vernacular_wrapper)
-
-    # -----------------------------
-    # Cached API Wrappers
-    # -----------------------------
-    def _search_scientific_wrapper(self, name: str):
-        """Wrapper for caching scientific name searches"""
-        try:
-            from ala_logic import NameMatchingSearchParams
-            print(f"[Resolver DEBUG] Creating NameMatchingSearchParams for: {name}")
-            params = NameMatchingSearchParams(q=name)
-            print(f"[Resolver DEBUG] Calling ala_logic.search_scientific_name")
-            result = self.ala_logic.search_scientific_name(params)
-            # print(f"[Resolver DEBUG] Result: {result}")
-            return result
-        except Exception as e:
-            print(f"[Resolver DEBUG] Exception in _search_scientific_wrapper: {e}")
-            import traceback
-            traceback.print_exc()
-            raise
-
-    def _search_vernacular_wrapper(self, name: str):
-        """Wrapper for caching vernacular name searches"""
-        try:
-            from ala_logic import VernacularNameSearchParams
-            print(f"[Resolver DEBUG] Creating VernacularNameSearchParams for: {name}")
-            params = VernacularNameSearchParams(vernacularName=name)
-            print(f"[Resolver DEBUG] Calling ala_logic.search_vernacular_name")
-            result = self.ala_logic.search_vernacular_name(params)
-            # print(f"[Resolver DEBUG] Result: {result}")
-            return result
-        except Exception as e:
-            print(f"[Resolver DEBUG] Exception in _search_vernacular_wrapper: {e}")
-            import traceback
-            traceback.print_exc()
-            raise
+        # Set the global reference for the cached functions (only once)
+        global _ala_logic_ref
+        if _ala_logic_ref is None:
+            _ala_logic_ref = ala_logic
 
     # -----------------------------
     # LSID Detection
@@ -66,30 +86,34 @@ class ALAParameterResolver:
 
     # -----------------------------
     # Name Resolution Helpers
+    # These use the global cached functions above
+    # Cache key is just the species name (ala_logic is global singleton)
     # -----------------------------
     def resolve_scientific_name(self, name: str) -> Optional[Dict]:
-        """Resolve scientific names using /search (cached)."""
+        """Resolve scientific names using /search (cached globally)."""
         try:
-            data = self._cached_scientific_search(name)
+            data = _cached_scientific_search_global(name)
 
             if not (data and data.get("success")):
                 return None
 
-            return self._extract_resolution_fields(data, name)
+            result = self._extract_resolution_fields(data, name)
+            return result
 
         except Exception as e:
             print(f"[Resolver] Scientific name resolution failed for '{name}': {e}")
             return None
 
     def resolve_common_name(self, name: str) -> Optional[Dict]:
-        """Resolve common names using /searchByVernacularName (cached)."""
+        """Resolve common names using /searchByVernacularName (cached globally)."""
         try:
-            data = self._cached_vernacular_search(name)
+            data = _cached_vernacular_search_global(name)
 
             if not (data and data.get("success")):
                 return None
 
-            return self._extract_resolution_fields(data, name)
+            result = self._extract_resolution_fields(data, name)
+            return result
 
         except Exception as e:
             print(f"[Resolver] Common name resolution failed for '{name}': {e}")
@@ -132,16 +156,18 @@ class ALAParameterResolver:
                 "species": None,
             }
         
-        # Try scientific name endpoint (cached)
+        # Try scientific name endpoint 
         sci = self.resolve_scientific_name(name)
         if sci:  # ← Remove the complex filter, just check if we got a result
-            print(f"[Resolver] Resolved '{name}' via scientific search")
+            # The actual API call (if it happened) is logged in the cached function
+            # If no [Resolver CACHE] message appeared, it was a cache hit
             return sci
 
-        # Try common name endpoint (cached)
+        # Try common name endpoint 
         common = self.resolve_common_name(name)
         if common:
-            print(f"[Resolver] Resolved '{name}' via common name search")
+            # The actual API call (if it happened) is logged in the cached function
+            # If no [Resolver CACHE] message appeared, it was a cache hit
             return common
 
         print(f"[Resolver] Could not resolve '{name}'")
@@ -211,12 +237,22 @@ class ALAParameterResolver:
                     self._add_extra_metadata(params, resolved)
 
                 else:
-                    print(f"[Resolver] ✗ Failed to resolve LSID for: {species_identifier}")
+                    print(f"[Resolver] Failed to resolve LSID for: {species_identifier}")
+                    # Resolution failed - set clarification_needed so user can provide correct species name
+                    extracted_response.clarification_needed = True
+                    extracted_response.clarification_reason = (
+                        f"Could not identify the species '{species_identifier}'. "
+                        f"Please provide either:\n"
+                        f"• A more complete species name (e.g., 'scientific name species', not just '{species_identifier}')\n"
+                        f"• A different common name\n"
+                        f"• The exact LSID if you have it"
+                    )
+                    extracted_response.unresolved_params.append(f"species_name ('{species_identifier}')")
 
         # -----------------------------
         # Final: update flags
         # -----------------------------
-        extracted_response.clarification_needed = len(extracted_response.unresolved_params) > 0
+        extracted_response.clarification_needed = extracted_response.clarification_needed or len(extracted_response.unresolved_params) > 0
         if not extracted_response.clarification_needed:
             extracted_response.clarification_reason = ""
 

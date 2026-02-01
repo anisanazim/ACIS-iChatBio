@@ -1,15 +1,13 @@
 import asyncio
 import json
-from typing import Dict, Any, List
-import requests
+import logging
+from typing import Dict, Any, List, Optional, Literal
 import os
 import yaml
 from datetime import datetime
 from ala_logic import get_bie_fields, map_params_to_model
 from typing_extensions import override
 from pydantic import BaseModel, Field
-from typing import Optional
-from langchain_openai import ChatOpenAI
 from ichatbio.agent import IChatBioAgent
 from ichatbio.agent_response import ResponseContext
 from ichatbio.types import AgentCard, AgentEntrypoint
@@ -17,6 +15,9 @@ from parameter_resolver import ALAParameterResolver
 from parameter_extractor import extract_params_from_query, ALASearchResponse
 from langchain_core.output_parsers import JsonOutputParser
 from langchain_core.prompts import ChatPromptTemplate
+from langchain_openai import ChatOpenAI
+
+logger = logging.getLogger(__name__)
 
 def get_config_value(key: str, default: str = None) -> str:
     """Get configuration value from environment or env.yaml file"""
@@ -46,9 +47,6 @@ from ala_logic import (
     SpatialDistributionMapParams
 )
 
-from pydantic import BaseModel, Field
-from typing import List, Literal
-
 class ToolPlan(BaseModel):
     tool_name: str
     priority: Literal["must_call", "optional"]
@@ -72,12 +70,31 @@ class ALAiChatBioAgent:
 
         planning_prompt = ChatPromptTemplate.from_messages([
             ("system", """
-You are an expert biodiversity research planner.
+You are an expert biodiversity research planner for the Atlas of Living Australia (ALA).
+
+**What ALA provides:**
+- Occurrence records (observations, specimens with dates, locations, collectors)
+- Taxa counts (total record numbers)
+- Faceted breakdowns (analytical counts by state, year, species, kingdom, etc.)
+- Species taxonomy and profiles
+- Expert distribution maps (geographic ranges)
+- Species images
+
+**What ALA does NOT provide:**
+- IUCN/conservation status
+- Genetic sequences or diversity data
+- Behavioral or physiological data
+- Economic/forestry data
+- Environmental monitoring (water quality, climate)
+- Disease/health data
+- Breeding program data
+
+**Out-of-scope queries:** If query asks for data ALA doesn't have, return empty tools_planned list ([]) so agent can decline gracefully.
 
 Analyze each query and create a JSON execution plan describing:
 - query_type: one of singlespecies, comparison, conservation, distribution, taxonomy
 - species_mentioned: list of scientific/common names if known, else "unknown"
-- tools_planned: list of dicts with properties {{"tool_name", "priority", "reason"}} using EXACT tool names below.
+- tools_planned: list of dicts with properties {{"tool_name", "priority", "reason"}} using EXACT tool names below. Return EMPTY LIST if query is out of scope.
 
 Available Tools:
 - search_species_occurrences: Returns ACTUAL occurrence records (individual sightings with dates, coordinates, collectors). Use for: "show me occurrences", "find sightings", "list observations"
@@ -85,7 +102,7 @@ Available Tools:
 - get_occurrence_taxa_count: Get TOTAL record counts for specific species (single number). Use for: "how many records", "count sightings", "total occurrences", "count in [single location]". Use when user wants ONE TOTAL NUMBER.
 - lookup_species_info: Get comprehensive species profiles, taxonomy, and metadata (BIE search). Use for: "tell me about species", "what is", "taxonomy of"
 - get_species_distribution: Get expert distribution maps and geographic range data. Use for: "where does it live", "distribution map", "geographic range"
-- get_species_images: Retrieve primary images for Australian species. Use for: "show me a photo", "image of species", "what does it look like"
+- get_species_images: Retrieve species images using LSID. Use for: "show me a photo", "image of species", "what does it look like". Note: Requires LSID resolution first.
 - finish: Call when the request is successfully completed
 
 Query types:
@@ -162,7 +179,7 @@ Create the execution plan.
             return ResearchPlan.parse_obj(plan_dict)
         except Exception as e:
             # Fallback if planning fails
-            print(f"Warning: Plan creation failed ({e}), using fallback plan")
+            logger.warning(f"Plan creation failed ({e}), using fallback plan")
 
             tools_planned = [
                 ToolPlan(
@@ -325,9 +342,14 @@ Create the execution plan.
 
     async def run_species_image_search(self, context, params: SpeciesImageSearchParams):
         """
-        Workflow for searching and fetching the first available image for a species.
+        Workflow for searching and fetching species images.
+        Supports multiple images if 'rows' parameter is specified.
         """
-        async with context.begin_process(f"Fetching image for taxon ID '{params.id}'") as process:
+        # Determine number of images requested
+        num_images = params.rows if params.rows else 1
+        process_msg = f"Fetching {num_images} image(s) for taxon ID '{params.id}'"
+        
+        async with context.begin_process(process_msg) as process:
             await process.log("Image search parameters", data=params.model_dump())
             
             metadata_url = self.ala_logic.build_species_image_search_url(params)
@@ -348,18 +370,42 @@ Create the execution plan.
                 await context.reply("The image search took too long to respond. Please try again later.")
                 return
 
-            image_url = None
+            # Extract multiple image URLs
+            image_urls = []
             try:
                 results = image_metadata.get('searchResults', {}).get('results', [])
-                if results and 'imageUrl' in results[0]:
-                    image_url = results[0]['imageUrl']
-                    await process.log(f"Extracted direct image URL: {image_url}")
-                else:
+                
+                if not results:
                     await context.reply(f"I found information about the species, but there are no images available for taxon ID '{params.id}'.")
                     return
+                
+                # Extract URLs from all available results (up to requested number)
+                for result in results:
+                    if 'imageUrl' in result:
+                        image_urls.append(result['imageUrl'])
+                    elif 'smallImageUrl' in result:
+                        image_urls.append(result['smallImageUrl'])
+                    elif 'largeImageUrl' in result:
+                        image_urls.append(result['largeImageUrl'])
+                
+                if not image_urls:
+                    await context.reply(f"I found image records but could not extract valid URLs for taxon ID '{params.id}'.")
+                    return
+                    
+                await process.log(f"Extracted {len(image_urls)} image URL(s)")
+                
+                # Format response based on number of images
+                if len(image_urls) == 1:
+                    await context.reply(f"Found 1 image:\n\n{image_urls[0]}")
+                else:
+                    response = f"Found {len(image_urls)} images:\n\n"
+                    for idx, url in enumerate(image_urls, 1):
+                        response += f"{idx}. {url}\n"
+                    await context.reply(response.strip())
+                    
             except (ValueError, KeyError, IndexError) as e:
                 await process.log("Error parsing image metadata", data={"error": str(e)})
-                await context.reply("I found image information but could not extract a valid download link.")
+                await context.reply("I found image information but could not extract valid download links.")
                 return
 
     async def run_species_bie_search(self, context, params: SpeciesBieSearchParams):
@@ -487,6 +533,22 @@ Create the execution plan.
                     timeout=30.0
                 )
                 
+                # Check if response is empty/null
+                if not raw_response:
+                    await process.log(f"No distribution data available for {species_name}")
+                    await context.reply(
+                        f"**Distribution data not available**\n\n"
+                        f"The Atlas of Living Australia (ALA) does not have expert-compiled distribution maps for **{species_name}**.\n\n"
+                        f"This doesn't mean the species doesn't exist or hasn't been recorded - it means:\n"
+                        f"• No expert distribution maps have been created yet, or\n"
+                        f"• Distribution data is still being compiled for this species\n\n"
+                        f"**Alternative options:**\n"
+                        f"• View actual occurrence records (where the species has been observed)\n"
+                        f"• Check the species information page for habitat details\n"
+                        f"• Look for conservation status information"
+                    )
+                    return {"success": False, "error": "no_data_available"}
+                
                 await process.log("Successfully retrieved distribution data")
                 
                 # Extract imageIds from response
@@ -497,9 +559,14 @@ Create the execution plan.
                             geom_idx = distribution.get('geom_idx')
                             if geom_idx:
                                 image_ids.append(str(geom_idx))
+                    distribution_count = len(raw_response)
+                else:
+                    distribution_count = 0
 
-                # Calculate statistics
-                distribution_count = len(raw_response) if isinstance(raw_response, list) else 1
+                # Log statistics
+                await process.log(f"Distribution areas found: {distribution_count}")
+                if image_ids:
+                    await process.log(f"Distribution map images available: {len(image_ids)}")
                 
                 # Create artifact
                 await process.create_artifact(
@@ -583,14 +650,75 @@ Create the execution plan.
                 }
 
             except asyncio.TimeoutError:
-                await process.log("Distribution API timed out")
-                await context.reply("API timeout - try again later or refine your request")
+                await process.log("Distribution API timed out (30s)")
+                await context.reply(
+                    f"⏱️ **Request timed out**\n\n"
+                    f"The ALA distribution service took too long to respond. This could happen if:\n"
+                    f"• The service is experiencing high traffic\n"
+                    f"• The distribution data for this species is very large\n\n"
+                    f"**Try again later** or contact ALA support if this persists."
+                )
                 return {"success": False, "error": "timeout"}
+            
+            except ConnectionError as e:
+                error_msg = str(e)
+                await process.log(f"API connection error: {error_msg}")
+                
+                # Check if this is a non-JSON response error
+                if "API response was not JSON" in error_msg:
+                    # This typically means empty response or no distribution data
+                    await context.reply(
+                        f"**Distribution data not available**\n\n"
+                        f"The Atlas of Living Australia (ALA) does not have expert-compiled distribution maps for **{species_name}**.\n\n"
+                        f"This doesn't mean the species doesn't exist or hasn't been recorded - it means:\n"
+                        f"• No expert distribution maps have been created yet, or\n"
+                        f"• Distribution data is still being compiled for this species\n\n"
+                        f"**Alternative options:**\n"
+                        f"• View actual occurrence records (where the species has been observed)\n"
+                        f"• Check the species information page for habitat details"
+                    )
+                    return {"success": False, "error": "no_data_available"}
+                else:
+                    # Other connection errors
+                    await context.reply(
+                        f"**Connection issue**\n\n"
+                        f"Unable to reach the ALA distribution service: {error_msg}\n\n"
+                        f"Please try again later."
+                    )
+                    return {"success": False, "error": "connection_error"}
+                    
+            except ValueError as e:
+                # Catch JSON parsing errors
+                if "JSON" in str(e) or "json" in str(e).lower():
+                    await process.log(f"API returned empty or invalid response: {e}")
+                    await context.reply(
+                        f"**Distribution data not available**\n\n"
+                        f"The Atlas of Living Australia (ALA) does not have expert-compiled distribution maps for **{species_name}**.\n\n"
+                        f"This doesn't mean the species doesn't exist or hasn't been recorded - it means:\n"
+                        f"• No expert distribution maps have been created yet, or\n"
+                        f"• Distribution data is still being compiled for this species\n\n"
+                        f"**Alternative options:**\n"
+                        f"• View actual occurrence records (where the species has been observed)\n"
+                        f"• Check the species information page for habitat details"
+                    )
+                    return {"success": False, "error": "no_data_available"}
+                else:
+                    raise
                     
             except Exception as e:
-                await process.log(f"Error fetching distribution: {e}")
-                await context.reply(f"Error fetching distribution data: {e}")
+                await process.log(f"Error fetching distribution: {type(e).__name__}: {e}")
+                await context.reply(
+                    f"**Unable to fetch distribution data**\n\n"
+                    f"An error occurred while retrieving distribution information for {species_name}:\n"
+                    f"```\n{str(e)}\n```\n\n"
+                    f"**Possible causes:**\n"
+                    f"• The species identifier (LSID) may be invalid\n"
+                    f"• ALA service may be temporarily unavailable\n"
+                    f"• Network connectivity issue\n\n"
+                    f"Please try again later or verify the species name."
+                )
                 return {"success": False, "error": str(e)}
+
 
     async def run_get_occurrence_facets(self, context, params: OccurrenceFacetsParams):
         """Workflow for getting occurrence facet information - data breakdowns and insights"""
@@ -707,6 +835,16 @@ class UnifiedALAReActAgent(IChatBioAgent):
         # Step 1: Extract and resolve parameters once at the start
         resolved_params = await self.workflow_agent.process_user_query(request)
         
+        # Check if clarification is needed before proceeding
+        if resolved_params.clarification_needed:
+            clarification_message = f"I need more information to process your request:\n\n**Issue:** {resolved_params.clarification_reason}"
+            
+            if resolved_params.unresolved_params:
+                clarification_message += f"\n\n**Unresolved Parameters:** {', '.join(resolved_params.unresolved_params)}"
+            
+            await context.reply(clarification_message)
+            return
+        
         # Extract species names from params dict (they can be in different fields)
         species_names = []
         if 'scientific_name' in resolved_params.params:
@@ -741,24 +879,35 @@ class UnifiedALAReActAgent(IChatBioAgent):
             except Exception as e:
                 import traceback
                 error_detail = traceback.format_exc()
-                print(f"ERROR in _search_species_occurrences: {error_detail}")
+                logger.error(f"Error in _search_species_occurrences: {error_detail}")
                 return {"success": False, "message": f"Error executing search: {str(e)}"}
 
         async def _get_species_images(resolved_obj):
             """Retrieve species images"""
             species_id = None
+            rows = None
+            start = None
+            qc = None
             
-            # Try to get ID from params or as direct attribute
+            # Try to get ID and other params from params dict or as direct attribute
             if hasattr(resolved_obj, 'params'):
                 species_id = resolved_obj.params.get('id') or resolved_obj.params.get('lsid')
+                rows = resolved_obj.params.get('images_count')
+                start = resolved_obj.params.get('offset')
+                qc = resolved_obj.params.get('qc')
             elif hasattr(resolved_obj, 'id'):
                 species_id = resolved_obj.id
             
             if not species_id:
-                return {"success": False, "message": "No valid species identifier provided to fetch images."}
+                return {"success": False, "message": "No valid species identifier (LSID) provided to fetch images."}
             try:
-                # Create SpeciesImageSearchParams with the id
-                image_params = SpeciesImageSearchParams(id=species_id)
+                # Create SpeciesImageSearchParams with all available parameters
+                image_params = SpeciesImageSearchParams(
+                    id=species_id,
+                    rows=rows,
+                    start=start,
+                    qc=qc
+                )
                 await self.workflow_agent.run_species_image_search(context, image_params)
                 return {"success": True, "message": f"Species image search completed for identifier '{species_id}'."}
             except Exception as e:
@@ -779,7 +928,20 @@ class UnifiedALAReActAgent(IChatBioAgent):
             
             species_name = species_names[0] if isinstance(species_names, list) else species_names
             try:
-                params = SpeciesBieSearchParams(q=species_name)
+                # Extract all BIE search parameters from resolved_obj.params
+                bie_params = {
+                    'q': species_name,
+                    'pageSize': resolved_obj.params.get('pageSize'),
+                    'start': resolved_obj.params.get('start'),
+                    'fq': resolved_obj.params.get('fq'),
+                    'facets': resolved_obj.params.get('facets'),
+                    'sort': resolved_obj.params.get('sort'),
+                    'dir': resolved_obj.params.get('dir')
+                }
+                # Filter out None values
+                bie_params = {k: v for k, v in bie_params.items() if v is not None}
+                
+                params = SpeciesBieSearchParams(**bie_params)
                 await self.workflow_agent.run_species_bie_search(context, params)
                 return {"success": True, "message": f"Found species information for {species_name}"}
             except Exception as e:
@@ -827,14 +989,6 @@ class UnifiedALAReActAgent(IChatBioAgent):
                 return {"success": True, "message": "Successfully processed occurrence breakdown request"}
             except Exception as e:
                 return {"success": False, "message": f"Error processing breakdown: {str(e)}"}
-
-        async def _get_occurrence_taxa_count(resolved_obj):
-            """Get occurrence counts for species"""
-            try:
-                await self.workflow_agent.run_user_friendly_taxa_count(context, resolved_obj)
-                return {"success": True, "message": "Successfully processed taxa count request."}
-            except Exception as e:
-                return {"success": False, "message": f"Error processing taxa count: {e}"}
 
         async def _get_occurrence_taxa_count(resolved_obj):
             """Get total count of occurrence records for species"""

@@ -6,7 +6,7 @@ from typing import List, Dict, Any, Optional
 
 class ALASearchResponse(BaseModel):
     """Response model for ALA parameter extraction"""
-    params: Dict[str, Any] = Field(description="Extracted API parameters")
+    params: Dict[str, Any] = Field(default={}, description="Extracted API parameters")
     unresolved_params: List[str] = Field(default=[], description="Parameters needing clarification")
     clarification_needed: bool = Field(default=False, description="Whether clarification is required")
     clarification_reason: str = Field(default="", description="Why clarification is needed")
@@ -37,8 +37,6 @@ class ALASearchResponse(BaseModel):
                 
         return v
 
-
-# System prompt for parameter extraction
 PARAMETER_EXTRACTION_PROMPT = """
 You are an assistant that extracts search parameters for the Atlas of Living Australia (ALA) API.
 
@@ -117,6 +115,7 @@ CRITICAL RULES:
    - "Break down by year" -> facets=["year"]
    - "Top 5 species in Queensland" -> facets=["species"]
    - "Distribution across institutions" -> facets=["institution_code"]
+
 
    USE TAXA COUNT (get_occurrence_taxa_count) when user wants SINGLE TOTAL:
    TRIGGER WORDS:
