@@ -1032,6 +1032,17 @@ class UnifiedALAReActAgent(IChatBioAgent):
             await process.log(f"Total tools planned: {len(plan.tools_planned)}")
             await process.log(f"Tool execution order: {[(t.tool_name, t.priority) for t in plan.tools_planned]}")
             
+            # Check if query is out of scope (empty tools list)
+            if len(plan.tools_planned) == 0:
+                await process.log("No tools planned - query appears to be out of scope for ALA")
+                await context.reply(
+                    "I'm sorry, but the Atlas of Living Australia doesn't provide that type of data. "
+                    "ALA specializes in species occurrence records, taxonomy, distribution maps, and images. "
+                    "For information like IUCN conservation status, genetic data, behavioral studies, or economic assessments, "
+                    "you would need to consult other specialized databases."
+                )
+                return
+            
             # PHASE 1: Execute ALL must_call tools
             must_call_tools = [t for t in plan.tools_planned if t.priority == "must_call"]
             await process.log(f"Phase 1: Executing {len(must_call_tools)} must_call tool(s)")

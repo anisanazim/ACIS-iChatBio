@@ -40,6 +40,8 @@ class ALASearchResponse(BaseModel):
 PARAMETER_EXTRACTION_PROMPT = """
 You are an assistant that extracts search parameters for the Atlas of Living Australia (ALA) API.
 
+IMPORTANT: You will receive the current date in the user message. Use it to calculate relative time ranges.
+
 CRITICAL RULES:
 1. Extract ALL relevant parameters from the user query - taxonomic, spatial, AND temporal.
 
@@ -49,6 +51,12 @@ CRITICAL RULES:
    - "between 2010 and 2020" -> year="2010,2020"
    - "in 2021" -> year="2021"
    - "since 2015" -> year="2015+"
+   
+   **Relative dates (USE CURRENT DATE FROM USER MESSAGE):**
+   - "last 5 years" with current date 2026 -> year="2021+" (current year minus 5)
+   - "past 3 years" with current date 2026 -> year="2023+" (current year minus 3)
+   - "recent" or "recently" -> year="<current year minus 2>+"
+   - "last year" with current date 2026 -> year="2025+"
 
 3. SPECIES NAME EXTRACTION - ALWAYS USE "q" PARAMETER:
    - For ANY species query (common, scientific name, OR LSID), use the "q" parameter
@@ -374,12 +382,15 @@ async def extract_params_from_query(
         {'q': 'koala', 'fq': ['state:New South Wales'], 'year': '2020+'}
     """
     try:
+        from datetime import datetime
+        current_date = datetime.now().strftime("%Y-%m-%d")
+        
         return await openai_client.chat.completions.create(
             model="gpt-4o-mini",
             response_model=response_model,
             messages=[
                 {"role": "system", "content": PARAMETER_EXTRACTION_PROMPT},
-                {"role": "user", "content": f"Extract parameters from: {user_query}"}
+                {"role": "user", "content": f"Current date: {current_date}\n\nExtract parameters from: {user_query}"}
             ],
             temperature=0,
             max_retries=3,
