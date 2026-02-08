@@ -6,7 +6,7 @@ from typing import List, Dict, Any, Optional
 
 class ALASearchResponse(BaseModel):
     """Response model for ALA parameter extraction"""
-    params: Dict[str, Any] = Field(default={}, description="Extracted API parameters")
+    params: Dict[str, Any] = Field(description="Extracted API parameters - REQUIRED, use {} if truly no parameters needed")
     unresolved_params: List[str] = Field(default=[], description="Parameters needing clarification")
     clarification_needed: bool = Field(default=False, description="Whether clarification is required")
     clarification_reason: str = Field(default="", description="Why clarification is needed")
@@ -165,6 +165,18 @@ CRITICAL RULES:
     - "Northern Territory/NT" -> state="Northern Territory"
     - "Australian Capital Territory/ACT" -> state="Australian Capital Territory"
 
+14. BASIS OF RECORD EXTRACTION (Record Type Filters):
+    Extract basis_of_record when user specifies record type:
+    - "preserved specimens" / "museum specimens" / "specimens" -> basis_of_record="PreservedSpecimen"
+    - "human observations" / "citizen science" / "observations" -> basis_of_record="HumanObservation"
+    - "machine observations" -> basis_of_record="MachineObservation"
+    - "living specimens" -> basis_of_record="LivingSpecimen"
+    - "fossil specimens" -> basis_of_record="FossilSpecimen"
+    - "material samples" -> basis_of_record="MaterialSample"
+    
+    IMPORTANT: Only extract basis_of_record when the user EXPLICITLY mentions record type.
+    Do NOT add it for general queries like "find koalas" or "show me occurrences".
+
 ---
 
 EXAMPLES:
@@ -179,6 +191,29 @@ Response:
   "artifact_description": "Koala occurrence records in Australia"
 }
 
+Query: "Show me occurrences of River Red Gum"
+Response:
+{
+  "params": { "q": "River Red Gum" },
+  "unresolved_params": [],
+  "clarification_needed": false,
+  "clarification_reason": "",
+  "artifact_description": "Occurrence records for River Red Gum"
+}
+
+Query: "Find Common Myna observations in the last 5 years"
+Response:
+{
+  "params": {
+    "q": "Common Myna",
+    "year": "2021+"
+  },
+  "unresolved_params": [],
+  "clarification_needed": false,
+  "clarification_reason": "",
+  "artifact_description": "Common Myna observations from 2021 onwards"
+}
+
 Query: "Koala sightings in New South Wales before 2018"  
 Response:  
 {
@@ -191,6 +226,32 @@ Response:
   "clarification_needed": false,
   "clarification_reason": "",
   "artifact_description": "Koala occurrence records in New South Wales before 2018"
+}
+
+Query: "Find preserved specimens of Tasmanian Devils"
+Response:
+{
+  "params": {
+    "q": "Tasmanian Devil",
+    "basis_of_record": "PreservedSpecimen"
+  },
+  "unresolved_params": [],
+  "clarification_needed": false,
+  "clarification_reason": "",
+  "artifact_description": "Preserved specimens of Tasmanian Devil"
+}
+
+Query: "Show me human observations of cane toads"
+Response:
+{
+  "params": {
+    "q": "cane toad",
+    "basis_of_record": "HumanObservation"
+  },
+  "unresolved_params": [],
+  "clarification_needed": false,
+  "clarification_reason": "",
+  "artifact_description": "Human observations of cane toads"
 }
 
 Query: "Species in family Macropodidae recorded after 2019"  

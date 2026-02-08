@@ -600,6 +600,9 @@ class ALA:
                     else:
                         # Fallback for other formats
                         fq_filters.append(f'{api_field}:{value}')
+                else:
+                    # Handle all other fq parameters (family, basis_of_record, state, etc.)
+                    fq_filters.append(f'{api_field}:{value}')
          
         # Handle date ranges
         start_date = param_dict.pop('startdate', None)
