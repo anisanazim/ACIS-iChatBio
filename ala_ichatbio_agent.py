@@ -106,7 +106,7 @@ Available Tools:
 - finish: Call when the request is successfully completed
 
 Query types:
-- singlespecies: Single species queries (occurrences, counts, info about ONE species)
+- singlespecies: Single species queries (occurrences, counts, info about ONE species), including temporal comparisons for one species
 - comparison: Compare multiple species
 - conservation: Conservation status queries
 - distribution: Geographic distribution/habitat/range maps (where species LIVES, not where records are)
@@ -116,6 +116,7 @@ Query types:
 - "Count sightings in Queensland" → singlespecies (counting records for one species)
 - "Show koala occurrences" → singlespecies (finding records)
 - "How many in each state" → singlespecies (still about one species' records)
+- "Compare summer vs winter sightings" → singlespecies (temporal comparison for one species, use month faceting)
 - "Where do koalas live?" → distribution (geographic range/habitat)
 - "Distribution map for wombat" → distribution (expert range data)
 - "Compare koala vs wombat" → comparison (multiple species)
@@ -129,12 +130,13 @@ Tool priorities (USE ONLY THESE TWO):
 - Use optional for helpful additions the user didn't ask for (like bonus images or extra context)
 - If user asks for multiple things, mark them ALL as must_call
 
-**Critical Query Pattern Rules:**
-1. "Count in [single location]" → must_call get_occurrence_taxa_count (single total)
-2. "How many X in EACH Y" → must_call get_occurrence_breakdown (counts per category)
-3. "Show me X occurrences" → must_call search_species_occurrences (actual records)
-4. "Break down by X" or "distribution across X" → must_call get_occurrence_breakdown
-5. "Tell me about X and show Y" → BOTH are must_call (user wants both)
+**Critical Query Pattern Rules (in priority order):**
+1. "Compare/breakdown/in EACH/by X" → must_call get_occurrence_breakdown ONLY (even if query says "sightings" or "records")
+2. "Count in [single location]" → must_call get_occurrence_taxa_count (single total)
+3. "Show me X occurrences" (without comparison) → must_call search_species_occurrences (actual records)
+4. "Tell me about X and show Y" → BOTH are must_call (user wants both)
+
+**IMPORTANT:** Comparison/breakdown queries use get_occurrence_breakdown ONLY. Do NOT combine with search_species_occurrences unless user explicitly asks like "show me the individual records AND compare them"
 
 **Key Distinction - Taxa Count vs Breakdown:**
 - "Count sightings in Queensland" → get_occurrence_taxa_count (one location = one number)
@@ -166,7 +168,9 @@ Create the execution plan.
         llm = ChatOpenAI(
                     model="gpt-4o-mini",
                     api_key=api_key,
-                    base_url=base_url
+                    base_url=base_url,
+                    timeout=30,  # 30 second timeout
+                    request_timeout=30  # Request-level timeout
                 )
 
         chain = planning_prompt | llm | parser
@@ -177,6 +181,10 @@ Create the execution plan.
                 "species": species_names if species_names else ["unknown"]
             })
             return ResearchPlan.parse_obj(plan_dict)
+        except asyncio.CancelledError:
+            # Re-raise cancellation errors (don't catch them)
+            logger.warning("Plan creation was cancelled")
+            raise
         except Exception as e:
             # Fallback if planning fails
             logger.warning(f"Plan creation failed ({e}), using fallback plan")

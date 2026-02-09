@@ -78,7 +78,7 @@ class OccurrenceSearchParams(BaseModel):
     )
     
     pageSize: Optional[int] = Field(1000,
-        description="Number of records to return per page",
+        description="The prefix to limit facet values",
         ge=1, le=1000
     )
     
@@ -99,11 +99,12 @@ class OccurrenceSearchParams(BaseModel):
     )
     
     qc: Optional[str] = Field(None,
-        description="The query context to be used for the search"
+        description="The query context to be used for the search. This will be used to generate extra query filters."
     )
     
     facet: Optional[bool] = Field(None,
-        description="Enable/disable facets"
+        description="Enable/disable facets",
+        examples=["true", "false"]
     )
     
     qualityProfile: Optional[str] = Field(None,
@@ -141,7 +142,8 @@ class OccurrenceSearchParams(BaseModel):
     
     # Image metadata
     im: Optional[bool] = Field(None,
-        description="Include image metadata"
+        description="Include image metadata",
+        examples=["true", "false"]
     )
     
     # USER-FRIENDLY PARAMETERS (for backward compatibility)
@@ -198,11 +200,13 @@ class OccurrenceSearchParams(BaseModel):
     )
     
     has_images: Optional[bool] = Field(None, 
-        description="Filter to records with images (converted to fq filter)"
+        description="Filter to records with images (converted to fq filter)",
+        examples=["true", "false"]
     )
     
     has_coordinates: Optional[bool] = Field(None, 
-        description="Filter to records with coordinates (converted to fq filter)"
+        description="Filter to records with coordinates (converted to fq filter)",
+        examples=["true", "false"]
     )
     
     basis_of_record: Optional[str] = Field(None, 
@@ -479,7 +483,13 @@ def map_params_to_model(resolved_params: dict, model_class: Type[BaseModel]) -> 
 
 class ALA:
     def __init__(self): 
-        self.openai_client = instructor.patch(AsyncOpenAI(api_key=self._get_config_value("OPENAI_API_KEY"), base_url="https://api.ai.it.ufl.edu"))
+        self.openai_client = instructor.patch(
+            AsyncOpenAI(
+                api_key=self._get_config_value("OPENAI_API_KEY"), 
+                base_url="https://api.ai.it.ufl.edu",
+                timeout=30.0  # 30 second timeout
+            )
+        )
         self.ala_api_base_url = self._get_config_value("ALA_API_URL", "https://api.ala.org.au")
         
         self.session = cloudscraper.create_scraper()

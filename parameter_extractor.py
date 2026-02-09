@@ -1,13 +1,11 @@
 # parameter_extractor.py
-
 from pydantic import BaseModel, Field, field_validator
 from typing import List, Dict, Any, Optional
 
-
 class ALASearchResponse(BaseModel):
     """Response model for ALA parameter extraction"""
-    params: Dict[str, Any] = Field(description="Extracted API parameters - REQUIRED, use {} if truly no parameters needed")
-    unresolved_params: List[str] = Field(default=[], description="Parameters needing clarification")
+    params: Dict[str, Any] = Field(default_factory=dict, description="Extracted API parameters - REQUIRED, use {} if truly no parameters needed")    
+    unresolved_params: List[str] = Field(default_factory=list, description="Parameters needing clarification")
     clarification_needed: bool = Field(default=False, description="Whether clarification is required")
     clarification_reason: str = Field(default="", description="Why clarification is needed")
     artifact_description: str = Field(default="", description="Description of expected results")
@@ -29,10 +27,20 @@ class ALASearchResponse(BaseModel):
             temporal_params = ['year', 'startdate', 'enddate']
             has_temporal_param = any(param in v for param in temporal_params)
             
+            # Also check for month filters in fq parameter
+            if not has_temporal_param and 'fq' in v:
+                fq_filters = v['fq'] if isinstance(v['fq'], list) else [v['fq']]
+                has_temporal_param = any('month:' in str(fq) for fq in fq_filters)
+            
+            # Also check for month faceting (seasonal breakdowns)
+            if not has_temporal_param and 'facets' in v:
+                facets = v['facets'] if isinstance(v['facets'], list) else [v['facets']]
+                has_temporal_param = 'month' in facets
+            
             if not has_temporal_param:
                 raise ValueError(
                     f"Temporal query detected ('{original_query}') but no temporal parameters extracted. "
-                    f"Must include year, startdate, or enddate."
+                    f"Must include year, startdate, enddate, month filter, or month faceting."
                 )
                 
         return v
@@ -40,7 +48,17 @@ class ALASearchResponse(BaseModel):
 PARAMETER_EXTRACTION_PROMPT = """
 You are an assistant that extracts search parameters for the Atlas of Living Australia (ALA) API.
 
-CRITICAL RULES:
+**OUTPUT FORMAT:**
+You MUST respond with ONLY valid JSON matching the ALASearchResponse schema. 
+DO NOT include any explanatory text, commentary, or the query in your response.
+DO NOT prefix your response with the query text.
+
+**MOST CRITICAL RULES:**
+1. The "params" field is MANDATORY in EVERY response. NEVER omit it.
+2. If you cannot extract any parameters, use an empty dict: {"params": {}}
+3. Return ONLY the JSON object, nothing else.
+
+CRITICAL PARAMETER EXTRACTION RULES:
 1. Extract ALL relevant parameters from the user query - taxonomic, spatial, AND temporal.
 
 2. For temporal queries, ALWAYS extract year/date parameters:
@@ -137,6 +155,7 @@ CRITICAL RULES:
    - "state/states/location/in each state"                  -> facets=["state"]
    - "species/in each species"                              -> facets=["species"]
    - "year/years/decade/decades/time/by year"               -> facets=["year"]
+   - "month/months/by month/monthly"                         -> facets=["month"]
    - "class/classes"                                         -> facets=["class"]
    - "family/families"                                       -> facets=["family"]
    - "institution/institutions/collecting"                   -> facets=["institution_code"]
@@ -177,9 +196,56 @@ CRITICAL RULES:
     IMPORTANT: Only extract basis_of_record when the user EXPLICITLY mentions record type.
     Do NOT add it for general queries like "find koalas" or "show me occurrences".
 
+15. SEASON / MONTH FILTERING:
+    Extract month parameters when user mentions seasons or specific months.
+    
+    AUSTRALIAN SEASONS (Southern Hemisphere):
+    - "summer" / "summer months" -> fq=["month:(12 OR 1 OR 2)"]
+    - "autumn" / "fall" -> fq=["month:(3 OR 4 OR 5)"]
+    - "winter" / "winter months" -> fq=["month:(6 OR 7 OR 8)"]
+    - "spring" / "spring months" -> fq=["month:(9 OR 10 OR 11)"]
+    
+    SPECIFIC MONTHS (use month numbers 1-12):
+    - "January" -> fq=["month:1"]
+    - "February" -> fq=["month:2"]
+    - "March" -> fq=["month:3"]
+    - "April" -> fq=["month:4"]
+    - "May" -> fq=["month:5"]
+    - "June" -> fq=["month:6"]
+    - "July" -> fq=["month:7"]
+    - "August" -> fq=["month:8"]
+    - "September" -> fq=["month:9"]
+    - "October" -> fq=["month:10"]
+    - "November" -> fq=["month:11"]
+    - "December" -> fq=["month:12"]
+    
+    MONTH RANGES:
+    - "December through February" -> fq=["month:(12 OR 1 OR 2)"]
+    - "June to August" -> fq=["month:(6 OR 7 OR 8)"]
+    - "March-May" -> fq=["month:(3 OR 4 OR 5)"]
+    
+    FACETING BY MONTH:
+    - "breakdown by month" -> facets=["month"]
+    - "monthly distribution" -> facets=["month"]
+    - "which months" -> facets=["month"]
+    
+    TEMPORAL COMPARISONS (use month faceting for breakdowns):
+    - "compare summer vs winter" -> facets=["month"], fsort="count"
+    - "summer vs winter sightings" -> facets=["month"]
+    - "seasonal patterns" -> facets=["month"]
+    - "which season has more" -> facets=["month"], fsort="count"
+    - "compare January vs July" -> facets=["month"]
+    
+    IMPORTANT:
+    - Always use month numbers (1-12), not names, in the fq filter
+    - Use OR operator for multiple months: "month:(12 OR 1 OR 2)"
+    - Australian seasons are opposite to Northern Hemisphere
+    - For comparisons (summer vs winter), use facets=["month"] to get all months
+    - Combine with other filters: {"q": "koala", "fq": ["month:(12 OR 1 OR 2)", "state:Queensland"]}
+
 ---
 
-EXAMPLES:
+EXAMPLES (for training only - when extracting, return ONLY the JSON Response object):
 
 Query: "Show me koala occurrences in Australia"  
 Response:  
@@ -199,19 +265,6 @@ Response:
   "clarification_needed": false,
   "clarification_reason": "",
   "artifact_description": "Occurrence records for River Red Gum"
-}
-
-Query: "Find Common Myna observations in the last 5 years"
-Response:
-{
-  "params": {
-    "q": "Common Myna",
-    "year": "2021+"
-  },
-  "unresolved_params": [],
-  "clarification_needed": false,
-  "clarification_reason": "",
-  "artifact_description": "Common Myna observations from 2021 onwards"
 }
 
 Query: "Koala sightings in New South Wales before 2018"  
@@ -379,16 +432,74 @@ Response:
   "artifact_description": "Species image for Tasmanian Tiger"
 }
 
-Query: "Species image for https://biodiversity.org.au/afd/taxa/7e6e134b-2bc7-43c4-b23a-6e3f420f57ad"  
-Response:  
+Query: "Show Rainbow Bee-eater observations in summer months"
+Response:
 {
   "params": {
-    "q": "https://biodiversity.org.au/afd/taxa/7e6e134b-2bc7-43c4-b23a-6e3f420f57ad"
+    "q": "Rainbow Bee-eater",
+    "fq": ["month:(12 OR 1 OR 2)"]
   },
   "unresolved_params": [],
   "clarification_needed": false,
   "clarification_reason": "",
-  "artifact_description": "Species image for LSID https://biodiversity.org.au/afd/taxa/7e6e134b-2bc7-43c4-b23a-6e3f420f57ad"
+  "artifact_description": "Rainbow Bee-eater observations during Australian summer (Dec-Feb)"
+}
+
+
+Query: "Break down koala sightings by month"
+Response:
+{
+  "params": {
+    "q": "koala",
+    "facets": ["month"]
+  },
+  "unresolved_params": [],
+  "clarification_needed": false,
+  "clarification_reason": "",
+  "artifact_description": "Monthly breakdown of koala sightings"
+}
+
+Query: "Which months have the most bird observations in Queensland?"
+Response:
+{
+  "params": {
+    "fq": ["state:Queensland"],
+    "facets": ["month"],
+    "fsort": "count"
+  },
+  "unresolved_params": [],
+  "clarification_needed": false,
+  "clarification_reason": "",
+  "artifact_description": "Monthly distribution of bird observations in Queensland"
+}
+
+Query: "Which months have the most emu observations?"
+Response:
+{
+  "params": {
+    "q": "emu",
+    "facets": ["month"],
+    "fsort": "count"
+  },
+  "unresolved_params": [],
+  "clarification_needed": false,
+  "clarification_reason": "",
+  "artifact_description": "Monthly breakdown of emu observations"
+}
+
+
+Query: "Are there more koala observations in summer or winter?"
+Response:
+{
+  "params": {
+    "q": "koala",
+    "facets": ["month"],
+    "fsort": "count"
+  },
+  "unresolved_params": [],
+  "clarification_needed": false,
+  "clarification_reason": "",
+  "artifact_description": "Monthly breakdown of koala observations for seasonal comparison"
 }
 
 Query: "Find records for an unknown species near Sydney"
@@ -440,7 +551,7 @@ async def extract_params_from_query(
             response_model=response_model,
             messages=[
                 {"role": "system", "content": PARAMETER_EXTRACTION_PROMPT},
-                {"role": "user", "content": f"Extract parameters from: {user_query}"}
+                {"role": "user", "content": f" {user_query}"}
             ],
             temperature=0,
             max_retries=3,
