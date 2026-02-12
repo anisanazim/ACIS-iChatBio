@@ -14,12 +14,14 @@ class ALASearchResponse(BaseModel):
     @classmethod
     def validate_params(cls, v, info):
         """Validate that temporal queries include temporal parameters"""
+        """Validate that temporal queries include temporal parameters"""
+
         # Get original query from context if available
         context = info.context or {}
         original_query = context.get('original_query', '')
         
         # Check for temporal keywords
-        temporal_keywords = ['before', 'after', 'since', 'between', 'during']
+        temporal_keywords = ['before', 'after', 'since', 'between', 'during', 'post']
         has_temporal = any(keyword in original_query.lower() for keyword in temporal_keywords)
         
         if has_temporal:
@@ -46,475 +48,242 @@ class ALASearchResponse(BaseModel):
         return v
 
 PARAMETER_EXTRACTION_PROMPT = """
-You are an assistant that extracts search parameters for the Atlas of Living Australia (ALA) API.
+You extract structured ALA API parameters from natural language queries.
 
-**OUTPUT FORMAT:**
-You MUST respond with ONLY valid JSON matching the ALASearchResponse schema. 
-DO NOT include any explanatory text, commentary, or the query in your response.
-DO NOT prefix your response with the query text.
+OUTPUT FORMAT:
+- Respond with ONLY valid JSON matching ALASearchResponse.
+- "params" must always exist (use {} if empty).
+- No explanations, no markdown, no extra text.
 
-**MOST CRITICAL RULES:**
-1. The "params" field is MANDATORY in EVERY response. NEVER omit it.
-2. If you cannot extract any parameters, use an empty dict: {"params": {}}
-3. Return ONLY the JSON object, nothing else.
+---------------------------------------
+CORE EXTRACTION RULES
+---------------------------------------
 
-CRITICAL PARAMETER EXTRACTION RULES:
-1. Extract ALL relevant parameters from the user query - taxonomic, spatial, AND temporal.
+1. SPECIES / IDENTIFIER EXTRACTION
+- Put the species/common name/LSID EXACTLY as written into "q".
+- Do NOT modify, resolve, or normalize names.
+- Do NOT combine common + scientific names.
+- Resolver will handle scientific/common/LSID resolution.
+If the user does NOT mention a species, genus, or taxon name:
+- Do NOT include "q" in the params.
+- Do NOT set q="".
 
-2. For temporal queries, ALWAYS extract year/date parameters:
-   - "before 2018" -> year="<2018"
-   - "after 2020" -> year="2020+"
-   - "between 2010 and 2020" -> year="2010,2020"
-   - "in 2021" -> year="2021"
-   - "since 2015" -> year="2015+"
+2. TEMPORAL EXTRACTION
 
-3. SPECIES NAME EXTRACTION - ALWAYS USE "q" PARAMETER:
-   - For ANY species query (common, scientific name, OR LSID), use the "q" parameter
-   - The resolver will automatically populate both "lsid" and "id" fields
-   - Pass names/LSIDs EXACTLY as the user provides them
-   - Extract ONLY ONE identifier (common name OR scientific name), NOT BOTH
-   - Prefer the scientific name if provided
-   - DO NOT combine them like "Common Name (Scientific Name)"
-   
-   Examples:
-   - "Show me Tasmanian Devil occurrences" -> {"q": "Tasmanian Devil"}
-   - "Find Sarcophilus harrisii records" -> {"q": "Sarcophilus harrisii"}
-   - "Tasmanian Devil (Sarcophilus harrisii) data" -> {"q": "Sarcophilus harrisii"}  (prefer scientific!)
-   - "Show me koala occurrences" -> {"q": "koala"}
-   - "Distribution of wombat" -> {"q": "wombat"}
-   - "Image of Phascolarctos cinereus" -> {"q": "Phascolarctos cinereus"}
-   - "Distribution of https://biodiversity.org.au/afd/taxa/123..." -> {"q": "https://..."}
-   - "Image for https://biodiversity.org.au/afd/taxa/456..." -> {"q": "https://..."}
-   
-   DO NOT do this:
-    {"species_name": ["Phascolarctos cinereus"]} when user said "koala"
-    Pre-resolving common names to scientific names
-    Using different fields like "species_name" or "common_name" for species
-    {"q": "Tasmanian Devil (Sarcophilus harrisii)"}
-    {"q": "koala (Phascolarctos cinereus)"}
+Convert natural language to:
+- “before X” → year="<X"        (occurrence searches only)
+- “after X”, “post X”, “since X” → year="X+"   (occurrence searches only)
+- “in X” → year="X"
+- “between A and B”, “from A to B” → year="A,B"
 
-4. Only mark scientific_name as unresolved if:
-   - The query is complex or ambiguous
-   - Multiple species might match
-   - You genuinely cannot determine what species the user wants
-   - NOT because you don't know the scientific name (resolver handles that!)
+Relative temporal expressions:
+- “last N years”, “past N years”, “last decade”, “past decade”
+    → extract: relative_years = N
+    → Do NOT compute actual years (backend will convert)
 
-5. PRESERVE FULL LSIDs: If the query contains a full LSID URL (https://biodiversity.org.au/afd/taxa/...),
-   preserve it EXACTLY as-is in the 'q' parameter. DO NOT extract just the UUID part.
-   Examples:
-   - "Distribution of https://biodiversity.org.au/afd/taxa/00017b7e-89b3-4916-9c77-d4fbc74bdef6" 
-     -> {"q": "https://biodiversity.org.au/afd/taxa/00017b7e-89b3-4916-9c77-d4fbc74bdef6"}
-   - "Spatial data for https://biodiversity.org.au/afd/taxa/12345-abcd-..." 
-     -> {"q": "https://biodiversity.org.au/afd/taxa/12345-abcd-..."}
+PLACEMENT RULES:
 
+A. For occurrence searches (search_species_occurrences, get_occurrence_breakdown):
+    → Use the field: year="…" exactly as extracted above.
+    → Occurrence search supports ranges (e.g., "2021+", "<2000", "2010,2020").
 
-7. If any parameter (including scientific_name, location, or temporal) is ambiguous or incomplete,
-   mark it as unresolved and explain the reason in 'clarification_reason'.
+B. For taxaCount queries (get_occurrence_taxa_count):
+    IMPORTANT: taxaCount DOES NOT support ranges or operators.
+    It only accepts exact years.
 
-8. Extract spatial parameters:
-   - "in Queensland" -> fq=["state:Queensland"]
-   - "New South Wales" -> fq=["state:New South Wales"]
+    Therefore:
+    - “after X”, “post X”, “since X” → convert to the NEXT YEAR:
+          post 2020 → year="2021"
+          after 1999 → year="2000"
+    - “before X” → NOT SUPPORTED for taxaCount → ignore the filter
+    - “between A and B” → NOT SUPPORTED → ignore the filter unless A == B
+    - “in X” → year="X"
 
-9. Extract taxonomic parameters:
-   - "family Macropodidae" -> family="Macropodidae"
-   - "genus Eucalyptus" -> genus="Eucalyptus"
+    Then convert the year into fq entries:
+        year="2021" → fq=["year:2021"]
+        year="2000" → fq=["year:2000"]
 
-10. FACET ANALYSIS vs TAXA COUNT - CRITICAL DISTINCTION:
+    NEVER output:
+        year="2021+"
+        year="<2000"
+        year="2010,2020"
+        fq=["year:2021+"]
+        fq=["year:<2000"]
+        fq=["year:2010,2020"]
 
-   USE FACETS (get_occurrence_breakdown) when user wants BREAKDOWN BY CATEGORIES:
-   TRIGGER WORDS:
-   - "breakdown", "break down", "distribution across", "analyze", "analysis"
-   - "in EACH [category]", "by [category]", "across [categories]"
-   - "most common", "top X", "major", "types of"
-   - "which [categories]", "what [types]"
-   
-   Examples that need FACETS:
-   - "How many koala records in EACH state?" -> facets=["state"]
-   - "Break down by year" -> facets=["year"]
-   - "Top 5 species in Queensland" -> facets=["species"]
-   - "Distribution across institutions" -> facets=["institution_code"]
+C. If no temporal intent is present:
+    → Do NOT include “year” or “fq:year:…”
 
+3. SPATIAL EXTRACTION
+States:
+- Normalize abbreviations (QLD → Queensland, NSW → New South Wales, etc.)
 
-   USE TAXA COUNT (get_occurrence_taxa_count) when user wants SINGLE TOTAL:
-   TRIGGER WORDS:
-   - "count", "how many", "total", "number of"
-   - "in [single location]" (NOT "in each")
-   - "sightings of", "records for", "occurrences of"
-   
-   Examples that need TAXA COUNT:
-   - "Count sightings in Queensland of Macropus rufus" -> NO facets
-   - "How many koala records total?" -> NO facets
-   - "Total occurrences in Victoria" -> NO facets
-   - "Count wombats in NSW" -> NO facets
+Cities → lat/lon:
+- Brisbane (-27.47,153.03)
+- Sydney (-33.87,151.21)
+- Canberra (-35.28,149.13)
+- Melbourne (-37.81,144.96)
 
-   KEY RULE: If query mentions "EACH" or wants multiple categories -> use facets
-             If query wants single total for one location -> NO facets, just filters
+Radius:
+- “within X km” → radius=X
 
-   FACET FIELD MAPPING (only use when breakdown is needed):
-   - "kingdom/kingdoms/groups/taxa/types/species groups"    -> facets=["kingdom"]
-   - "state/states/location/in each state"                  -> facets=["state"]
-   - "species/in each species"                              -> facets=["species"]
-   - "year/years/decade/decades/time/by year"               -> facets=["year"]
-   - "month/months/by month/monthly"                         -> facets=["month"]
-   - "class/classes"                                         -> facets=["class"]
-   - "family/families"                                       -> facets=["family"]
-   - "institution/institutions/collecting"                   -> facets=["institution_code"]
-   - "record/records/types/basis of record"                  -> facets=["basis_of_record"]
+4. TAXONOMIC FILTERS
+Extract when explicitly mentioned:
+- kingdom=...
+- phylum=...
+- class=...
+- order=...
+- family=...
+- genus=...
 
-11. SPATIAL COORDINATES EXTRACTION:
-    - Extract city coordinates and radius for spatial queries:
-      - "Brisbane" -> lat=-27.47, lon=153.03
-      - "Sydney" -> lat=-33.87, lon=151.21
-      - "Canberra" -> lat=-35.28, lon=149.13
-      - "Melbourne" -> lat=-37.81, lon=144.96
-      - "within X km" -> radius=X
+5. BASIS OF RECORD
+Extract only when explicitly stated:
+- specimens → PreservedSpecimen
+- human observations → HumanObservation
+- machine observations → MachineObservation
+- living specimens → LivingSpecimen
+- fossils → FossilSpecimen
+- material samples → MaterialSample
 
-12. FACET PARAMETERS:
-    - "top X" -> flimit=X, fsort="count"
-    - "most common" -> fsort="count"
-    - "imaged species" -> has_images=true
+6. MONTH / SEASON FILTERS
+Use month numbers (1-12).
 
-13. STATE EXTRACTION:
-    - "Queensland/QLD" -> state="Queensland"
-    - "New South Wales/NSW" -> state="New South Wales"
-    - "Victoria/VIC" -> state="Victoria"
-    - "Western Australia/WA" -> state="Western Australia"
-    - "South Australia/SA" -> state="South Australia"
-    - "Tasmania/TAS" -> state="Tasmania"
-    - "Northern Territory/NT" -> state="Northern Territory"
-    - "Australian Capital Territory/ACT" -> state="Australian Capital Territory"
+Seasons (Southern Hemisphere):
+- summer → month:(12 OR 1 OR 2)
+- autumn/fall → month:(3 OR 4 OR 5)
+- winter → month:(6 OR 7 OR 8)
+- spring → month:(9 OR 10 OR 11)
 
-14. BASIS OF RECORD EXTRACTION (Record Type Filters):
-    Extract basis_of_record when user specifies record type:
-    - "preserved specimens" / "museum specimens" / "specimens" -> basis_of_record="PreservedSpecimen"
-    - "human observations" / "citizen science" / "observations" -> basis_of_record="HumanObservation"
-    - "machine observations" -> basis_of_record="MachineObservation"
-    - "living specimens" -> basis_of_record="LivingSpecimen"
-    - "fossil specimens" -> basis_of_record="FossilSpecimen"
-    - "material samples" -> basis_of_record="MaterialSample"
-    
-    IMPORTANT: Only extract basis_of_record when the user EXPLICITLY mentions record type.
-    Do NOT add it for general queries like "find koalas" or "show me occurrences".
+Specific months:
+January=1, February=2, ..., December=12
 
-15. SEASON / MONTH FILTERING:
-    Extract month parameters when user mentions seasons or specific months.
-    
-    AUSTRALIAN SEASONS (Southern Hemisphere):
-    - "summer" / "summer months" -> fq=["month:(12 OR 1 OR 2)"]
-    - "autumn" / "fall" -> fq=["month:(3 OR 4 OR 5)"]
-    - "winter" / "winter months" -> fq=["month:(6 OR 7 OR 8)"]
-    - "spring" / "spring months" -> fq=["month:(9 OR 10 OR 11)"]
-    
-    SPECIFIC MONTHS (use month numbers 1-12):
-    - "January" -> fq=["month:1"]
-    - "February" -> fq=["month:2"]
-    - "March" -> fq=["month:3"]
-    - "April" -> fq=["month:4"]
-    - "May" -> fq=["month:5"]
-    - "June" -> fq=["month:6"]
-    - "July" -> fq=["month:7"]
-    - "August" -> fq=["month:8"]
-    - "September" -> fq=["month:9"]
-    - "October" -> fq=["month:10"]
-    - "November" -> fq=["month:11"]
-    - "December" -> fq=["month:12"]
-    
-    MONTH RANGES:
-    - "December through February" -> fq=["month:(12 OR 1 OR 2)"]
-    - "June to August" -> fq=["month:(6 OR 7 OR 8)"]
-    - "March-May" -> fq=["month:(3 OR 4 OR 5)"]
-    
-    FACETING BY MONTH:
-    - "breakdown by month" -> facets=["month"]
-    - "monthly distribution" -> facets=["month"]
-    - "which months" -> facets=["month"]
-    
-    TEMPORAL COMPARISONS (use month faceting for breakdowns):
-    - "compare summer vs winter" -> facets=["month"], fsort="count"
-    - "summer vs winter sightings" -> facets=["month"]
-    - "seasonal patterns" -> facets=["month"]
-    - "which season has more" -> facets=["month"], fsort="count"
-    - "compare January vs July" -> facets=["month"]
-    
-    IMPORTANT:
-    - Always use month numbers (1-12), not names, in the fq filter
-    - Use OR operator for multiple months: "month:(12 OR 1 OR 2)"
-    - Australian seasons are opposite to Northern Hemisphere
-    - For comparisons (summer vs winter), use facets=["month"] to get all months
-    - Combine with other filters: {"q": "koala", "fq": ["month:(12 OR 1 OR 2)", "state:Queensland"]}
+Month ranges:
+- Dec-Feb → (12 OR 1 OR 2)
+- Jun-Aug → (6 OR 7 OR 8)
+- Mar-May → (3 OR 4 OR 5)
 
----
+7. FACETS vs TAXA COUNT
 
-EXAMPLES (for training only - when extracting, return ONLY the JSON Response object):
+Use FACETS when the user wants breakdowns:
+- “in each…”, “by…”, “distribution across…”, “top…”, “most…”, “common…”, “major…”, “types of…”
 
-Query: "Show me koala occurrences in Australia"  
-Response:  
-{
-  "params": { "q": "koala" },
-  "unresolved_params": [],
-  "clarification_needed": false,
-  "clarification_reason": "",
-  "artifact_description": "Koala occurrence records in Australia"
-}
+Explicit month-faceting triggers (because users phrase these differently):
+- “break down by month”
+- “monthly distribution”
+- “month-wise”
+- “which months”
+- “by month”
 
-Query: "Show me occurrences of River Red Gum"
-Response:
-{
-  "params": { "q": "River Red Gum" },
-  "unresolved_params": [],
-  "clarification_needed": false,
-  "clarification_reason": "",
-  "artifact_description": "Occurrence records for River Red Gum"
-}
+Season comparison triggers:
+- “summer or winter”
+- “winter or summer”
+- “compare seasons”
+- “seasonal comparison”
+- “seasonal difference”
+→ facets=["month"]
 
-Query: "Koala sightings in New South Wales before 2018"  
-Response:  
-{
-  "params": {
-    "q": "koala",
-    "fq": ["state:New South Wales"],
-    "year": "<2018"
-  },
-  "unresolved_params": [],
-  "clarification_needed": false,
-  "clarification_reason": "",
-  "artifact_description": "Koala occurrence records in New South Wales before 2018"
-}
+Taxonomic rank plural handling:
+If the user mentions a taxonomic rank in plural form 
+(families, genera, orders, classes, phyla, kingdoms),
+map it to the corresponding singular facet field.
 
-Query: "Find preserved specimens of Tasmanian Devils"
-Response:
-{
-  "params": {
-    "q": "Tasmanian Devil",
-    "basis_of_record": "PreservedSpecimen"
-  },
-  "unresolved_params": [],
-  "clarification_needed": false,
-  "clarification_reason": "",
-  "artifact_description": "Preserved specimens of Tasmanian Devil"
-}
+State comparison triggers:
+If the user lists multiple states in a comparison context,
+use facets=["state"] and do NOT apply state filters
 
-Query: "Show me human observations of cane toads"
-Response:
-{
-  "params": {
-    "q": "cane toad",
-    "basis_of_record": "HumanObservation"
-  },
-  "unresolved_params": [],
-  "clarification_needed": false,
-  "clarification_reason": "",
-  "artifact_description": "Human observations of cane toads"
-}
+Use TAXA COUNT when the user wants totals:
+- “how many”, “count”, “total occurrences”, “number of”
 
-Query: "Species in family Macropodidae recorded after 2019"  
-Response:  
-{
-  "params": {
-    "family": "Macropodidae",
-    "year": "2019+"
-  },
-  "unresolved_params": [],
-  "clarification_needed": false,
-  "clarification_reason": "",
-  "artifact_description": "Records of the family Macropodidae since 2020"
-}
+Facet field mapping:
+- state → ["state"]
+- species → ["species"]
+- year → ["year"]
+- month → ["month"]
+- family → ["family"]
+- class → ["class"]
+- phylum → ["phylum"]
+- order → ["order"]
+- genus → ["genus"]
+- kingdom → ["kingdom"]
+- basis of record → ["basis_of_record"]
+- institution → ["institution_code"]
 
-Query: "What kingdoms are found within 10km of Brisbane?"  
-Response:  
-{
-  "params": {
-    "facets": ["kingdom"],
-    "lat": -27.47,
-    "lon": 153.03,
-    "radius": 10
-  },
-  "unresolved_params": [],
-  "clarification_needed": false,
-  "clarification_reason": "",
-  "artifact_description": "Kingdom breakdown within 10km of Brisbane"
-}
+8. FACET LIMIT & SORT RULES
 
-Query: "Break down all records in Queensland by kingdom"  
-Response:  
-{
-  "params": {
-    "facets": ["kingdom"],
-    "fq": ["state:Queensland"]
-  },
-  "unresolved_params": [],
-  "clarification_needed": false,
-  "clarification_reason": "",
-  "artifact_description": "Kingdom breakdown for Queensland records"
-}
+- “top X …” →
+    flimit = X
+    fsort = "count"
+    If the phrase is “top X species”, “top species”, or “top 5 species”:
+        facets = ["species"]
 
-Query: "How many Kangaroo records are found in each state?"  
-Response:  
-{
-  "params": {
-    "q": "Kangaroo",
-    "facets": ["state"]
-  },
-  "unresolved_params": [],
-  "clarification_needed": false,
-  "clarification_reason": "",
-  "artifact_description": "Kangaroo records breakdown by state"
-}
+- “most …”, “highest …”, “most common …” →
+    fsort = "count"
+    If the phrase is “most common species”, “species with the most records”:
+        facets = ["species"]
 
-Query: "Show me the top 5 species recorded near Canberra"  
-Response:  
-{
-  "params": {
-    "facets": ["species"],
-    "lat": -35.28,
-    "lon": 149.13,
-    "radius": 10,
-    "flimit": 5,
-    "fsort": "count"
-  },
-  "unresolved_params": [],
-  "clarification_needed": false,
-  "clarification_reason": "",
-  "artifact_description": "Top 5 species near Canberra"
-}
+- If the user explicitly names a facet 
+  (“by kingdom”, “kingdom distribution”, “breakdown by family”, “top 10 families”):
+    facets = [that facet]
 
-Query: "Show me the most common imaged species in New South Wales"  
-Response:  
-{
-  "params": {
-    "facets": ["species"],
-    "fq": ["state:New South Wales"],
-    "has_images": true,
-    "flimit": 10,
-    "fsort": "count"
-  },
-  "unresolved_params": [],
-  "clarification_needed": false,
-  "clarification_reason": "",
-  "artifact_description": "Most common imaged species in New South Wales"
-}
+- Seasonal comparisons (“summer vs winter”, etc.) →
+    facets = ["month"]
+    fsort = "count"
 
-Query: "How many records for koala in Queensland?"  
-Response:  
-{
-  "params": {
-    "q": "koala",
-    "fq": ["state:Queensland"]
-  },
-  "unresolved_params": [],
-  "clarification_needed": false,
-  "clarification_reason": "",
-  "artifact_description": "Occurrence taxa count for koala in Queensland"
-}
+- If the query requests a ranking or top-N list but does not specify the facet:
+    Default to facets=["species"] unless another facet is clearly implied.
 
-Query: "Count occurrences of Eucalyptus post 2015"  
-Response:  
-{
-  "params": {
-    "q": "Eucalyptus",
-    "year": "2015+"
-  },
-  "unresolved_params": [],
-  "clarification_needed": false,
-  "clarification_reason": "",
-  "artifact_description": "Occurrence taxa count for Eucalyptus since 2016"
-}
+9. AMBIGUITY
+If species, temporal, or spatial intent is unclear:
+- add to unresolved_params
+- set clarification_needed=true
+- explain briefly in clarification_reason
 
-Query: "Show me an image of the Tasmanian Tiger"  
-Response:  
-{
-  "params": {
-    "q": "Tasmanian Tiger"
-  },
-  "unresolved_params": [],
-  "clarification_needed": false,
-  "clarification_reason": "",
-  "artifact_description": "Species image for Tasmanian Tiger"
-}
+10. ARTIFACT DESCRIPTION
+Provide a short natural-language summary of what the user wants.
 
-Query: "Show Rainbow Bee-eater observations in summer months"
-Response:
-{
-  "params": {
-    "q": "Rainbow Bee-eater",
-    "fq": ["month:(12 OR 1 OR 2)"]
-  },
-  "unresolved_params": [],
-  "clarification_needed": false,
-  "clarification_reason": "",
-  "artifact_description": "Rainbow Bee-eater observations during Australian summer (Dec-Feb)"
-}
+---------------------------------------
+EXAMPLES (pattern only)
+---------------------------------------
 
+Example 1 — Species + State:
+Query: "Koala sightings in Queensland"
+→ {"params": {"q": "koala", "state": "Queensland"}}
 
-Query: "Break down koala sightings by month"
-Response:
-{
-  "params": {
-    "q": "koala",
-    "facets": ["month"]
-  },
-  "unresolved_params": [],
-  "clarification_needed": false,
-  "clarification_reason": "",
-  "artifact_description": "Monthly breakdown of koala sightings"
-}
+Example 2 — Date Range:
+Query: "Koala sightings from 2020 to 2024"
+→ {"params": {"q": "koala", "year": "2020,2024"}}
 
-Query: "Which months have the most bird observations in Queensland?"
-Response:
-{
-  "params": {
-    "fq": ["state:Queensland"],
-    "facets": ["month"],
-    "fsort": "count"
-  },
-  "unresolved_params": [],
-  "clarification_needed": false,
-  "clarification_reason": "",
-  "artifact_description": "Monthly distribution of bird observations in Queensland"
-}
+Example 3 — Has Images:
+Query: "Koala records that have images"
+→ {"params": {"q": "koala", "has_images": true}}
 
-Query: "Which months have the most emu observations?"
-Response:
-{
-  "params": {
-    "q": "emu",
-    "facets": ["month"],
-    "fsort": "count"
-  },
-  "unresolved_params": [],
-  "clarification_needed": false,
-  "clarification_reason": "",
-  "artifact_description": "Monthly breakdown of emu observations"
-}
+Example 4 — Facets:
+Query: "Where are Eucalyptus trees most commonly found?"
+→ {"params": {"q": "Eucalyptus", "facets": ["state"], "fsort": "count"}}
 
+Example 5 — Basis of Record:
+Query: "Preserved specimens of Tasmanian Devils"
+→ {"params": {"q": "Tasmanian Devil", "basis_of_record": "PreservedSpecimen"}}
 
-Query: "Are there more koala observations in summer or winter?"
-Response:
-{
-  "params": {
-    "q": "koala",
-    "facets": ["month"],
-    "fsort": "count"
-  },
-  "unresolved_params": [],
-  "clarification_needed": false,
-  "clarification_reason": "",
-  "artifact_description": "Monthly breakdown of koala observations for seasonal comparison"
-}
+Example 6 — Season:
+Query: "Rainbow Bee-eater sightings in summer"
+→ {"params": {"q": "Rainbow Bee-eater", "fq": ["month:(12 OR 1 OR 2)"]}}
 
-Query: "Find records for an unknown species near Sydney"
-Response:
-{
-  "params": {
-    "q": "Sydney"
-  },
-  "unresolved_params": [
-    "scientific_name"
-  ],
-  "clarification_needed": true,
-  "clarification_reason": "Species name is ambiguous or missing precise scientific name",
-  "artifact_description": "Species occurrence records near Sydney"
-}
+Example 7 — Total Count:
+Query: "How many koala occurrences in Queensland?"
+→ {"params": {"q": "koala", "state": "Queensland"}}
+
+Example 8 — Top X:
+Query: "Top 5 species near Canberra"
+→ {"params": {"facets": ["species"], "lat": -35.28, "lon": 149.13, "radius": 10, "flimit": 5, "fsort": "count"}}
+
+Example 9 — Relative Years:
+Query: "Find Common Myna observations in the last 5 years"
+→ {"params": {"q": "Common Myna", "relative_years": 5}}
+
+---------------------------------------
+END OF RULES
+---------------------------------------
 """
 
 async def extract_params_from_query(

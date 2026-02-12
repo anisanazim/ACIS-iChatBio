@@ -1,6 +1,8 @@
 # parameter_resolver.py
 from functools import lru_cache
 from typing import Optional, Dict
+
+from fastapi import params
 from parameter_extractor import ALASearchResponse
 
 
@@ -9,7 +11,7 @@ _scientific_name_cache = {}
 _vernacular_name_cache = {}
 
 
-# Module-level cache for name resolution (keyed by name only, ala_logic assumed singleton)
+# Module-level cache for name resolution 
 def _cached_scientific_search_global(name: str):
     """Global cached wrapper for scientific name searches with explicit cache tracking"""
     # Check if in manual cache first
@@ -54,7 +56,6 @@ def _cached_vernacular_search_global(name: str):
         raise
 
 
-# Global reference to ala_logic (set once during resolver init)
 _ala_logic_ref = None
 
 
@@ -66,14 +67,11 @@ class ALAParameterResolver:
 
     def __init__(self, ala_logic):
         self.ala_logic = ala_logic
-        # Set the global reference for the cached functions (only once)
         global _ala_logic_ref
         if _ala_logic_ref is None:
             _ala_logic_ref = ala_logic
 
-    # -----------------------------
     # LSID Detection
-    # -----------------------------
     def _is_lsid(self, value: str) -> bool:
         """Check if a string is already an LSID URL."""
         if not isinstance(value, str):
@@ -84,11 +82,7 @@ class ALAParameterResolver:
             value.startswith("https://biodiversity.org.au/apni/")
         )
 
-    # -----------------------------
-    # Name Resolution Helpers
-    # These use the global cached functions above
-    # Cache key is just the species name (ala_logic is global singleton)
-    # -----------------------------
+   
     def resolve_scientific_name(self, name: str) -> Optional[Dict]:
         """Resolve scientific names using /search (cached globally)."""
         try:
@@ -135,11 +129,8 @@ class ALAParameterResolver:
             "species": data.get("species"),
         }
 
-    # -----------------------------
-    # Smart Name Resolution
-    # -----------------------------
+   
     def resolve_species_name(self, name: str) -> Optional[Dict]:
-        # SPECIAL CASE: If it's already an LSID, return it directly
         if self._is_lsid(name):
             print(f"[Resolver] Input is already an LSID: {name}")
             return {
@@ -156,26 +147,17 @@ class ALAParameterResolver:
                 "species": None,
             }
         
-        # Try scientific name endpoint 
         sci = self.resolve_scientific_name(name)
-        if sci:  # ← Remove the complex filter, just check if we got a result
-            # The actual API call (if it happened) is logged in the cached function
-            # If no [Resolver CACHE] message appeared, it was a cache hit
+        if sci:  
             return sci
 
-        # Try common name endpoint 
         common = self.resolve_common_name(name)
         if common:
-            # The actual API call (if it happened) is logged in the cached function
-            # If no [Resolver CACHE] message appeared, it was a cache hit
             return common
 
         print(f"[Resolver] Could not resolve '{name}'")
         return None
-  
-    # -----------------------------
-    # Resolve extracted response
-    # -----------------------------
+ 
     async def resolve_unresolved_params(self, extracted_response: ALASearchResponse) -> ALASearchResponse:
         """
         Auto resolves:
@@ -186,9 +168,15 @@ class ALAParameterResolver:
 
         params = extracted_response.params
 
-        # -----------------------------
-        # STEP 1: Resolve explicit unresolved params
-        # -----------------------------
+      
+        if "relative_years" in params:
+            from datetime import datetime
+            N = params.pop("relative_years")
+            current_year = datetime.now().year
+            start_year = current_year - N + 1
+            params["year"] = f"{start_year},{current_year}"
+
+      
         if extracted_response.unresolved_params:
             for param in list(extracted_response.unresolved_params):
                 if param == "scientific_name" and "q" in params:
@@ -205,9 +193,7 @@ class ALAParameterResolver:
                         # Remove from unresolved
                         extracted_response.unresolved_params.remove(param)
 
-        # -----------------------------
-        # STEP 2: Always try LSID resolution if missing
-        # -----------------------------
+ 
         if not params.get("lsid"):
             species_identifier = self._pick_species_identifier(params)
 
@@ -219,7 +205,6 @@ class ALAParameterResolver:
                     lsid = resolved.get('lsid')
                     sci_name = resolved.get('scientific_name')
                     
-                    # Log what we got
                     if sci_name:
                         print(f"[Resolver] Resolved: {sci_name} LSID={lsid}")
                     else:
@@ -237,8 +222,6 @@ class ALAParameterResolver:
                     self._add_extra_metadata(params, resolved)
 
                 else:
-                    print(f"[Resolver] Failed to resolve LSID for: {species_identifier}")
-                    # Resolution failed - set clarification_needed so user can provide correct species name
                     extracted_response.clarification_needed = True
                     extracted_response.clarification_reason = (
                         f"Could not identify the species '{species_identifier}'. "
@@ -249,18 +232,14 @@ class ALAParameterResolver:
                     )
                     extracted_response.unresolved_params.append(f"species_name ('{species_identifier}')")
 
-        # -----------------------------
-        # Final: update flags
-        # -----------------------------
+       
         extracted_response.clarification_needed = extracted_response.clarification_needed or len(extracted_response.unresolved_params) > 0
         if not extracted_response.clarification_needed:
             extracted_response.clarification_reason = ""
 
         return extracted_response
 
-    # -----------------------------
-    # Helper utilities
-    # -----------------------------
+  
     def _pick_species_identifier(self, params):
         """Pick best identifier to resolve LSID."""
         keys = ["q", "id", "scientific_name", "species_name", "common_name"]

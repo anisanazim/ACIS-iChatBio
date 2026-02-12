@@ -53,7 +53,7 @@ class ToolPlan(BaseModel):
     reason: str
 
 class ResearchPlan(BaseModel):
-    query_type: Literal["singlespecies", "comparison", "conservation", "distribution", "taxonomy"]
+    query_type: Literal["singlespecies", "comparison", "conservation", "distribution", "taxonomy", "facet", "taxonomic_group" ]
     species_mentioned: List[str]
     tools_planned: List[ToolPlan]
 
@@ -92,7 +92,7 @@ You are an expert biodiversity research planner for the Atlas of Living Australi
 **Out-of-scope queries:** If query asks for data ALA doesn't have, return empty tools_planned list ([]) so agent can decline gracefully.
 
 Analyze each query and create a JSON execution plan describing:
-- query_type: one of singlespecies, comparison, conservation, distribution, taxonomy
+- query_type: one of singlespecies, comparison, conservation, distribution, taxonomy, facet, taxonomic_group
 - species_mentioned: list of scientific/common names if known, else "unknown"
 - tools_planned: list of dicts with properties {{"tool_name", "priority", "reason"}} using EXACT tool names below. Return EMPTY LIST if query is out of scope.
 
@@ -106,20 +106,67 @@ Available Tools:
 - finish: Call when the request is successfully completed
 
 Query types:
-- singlespecies: Single species queries (occurrences, counts, info about ONE species), including temporal comparisons for one species
-- comparison: Compare multiple species
-- conservation: Conservation status queries
-- distribution: Geographic distribution/habitat/range maps (where species LIVES, not where records are)
-- taxonomy: Classification info, taxonomic relationships
 
-**Query Type Selection Examples:**
-- "Count sightings in Queensland" → singlespecies (counting records for one species)
-- "Show koala occurrences" → singlespecies (finding records)
-- "How many in each state" → singlespecies (still about one species' records)
-- "Compare summer vs winter sightings" → singlespecies (temporal comparison for one species, use month faceting)
-- "Where do koalas live?" → distribution (geographic range/habitat)
-- "Distribution map for wombat" → distribution (expert range data)
-- "Compare koala vs wombat" → comparison (multiple species)
+- singlespecies:
+  Queries focused on ONE species, including:
+  - occurrences (“show me koala sightings”)
+  - total counts (“how many koala records?”)
+  - temporal comparisons for one species (“compare summer vs winter sightings for koala”)
+  - species-specific filters (state, year, basis_of_record, etc.)
+  Use singlespecies even if the query includes faceting, as long as it is still about ONE species.
+
+- comparison:
+  Queries comparing TWO OR MORE species.
+  Examples:
+  - “Compare koala vs wombat”
+  - “Which species has more records, emu or cassowary?”
+
+- conservation:
+  Queries asking about conservation status, threatened categories, or endangerment.
+  Examples:
+  - “Is the koala endangered?”
+  - “What is the conservation status of Tasmanian Devils?”
+  - “Are wombats vulnerable?”
+  ALA does NOT provide conservation status. For ANY conservation query:
+  → Set query_type="conservation"
+  → Set tools_planned = []
+  → The agent will decline gracefully.
+
+- distribution:
+  Queries asking about geographic range, habitat, or expert distribution maps
+  (where the species LIVES, not where records were collected).
+  Examples:
+  - “Where do koalas live?”
+  - “Distribution map for wombat”
+  - “What is the habitat of the platypus?”
+
+- taxonomy:
+  Queries asking for classification information or taxonomic relationships.
+  Examples:
+  - “What is the taxonomy of the koala?”
+  - “What family does the emu belong to?”
+  - “Tell me about the classification of kangaroos.”
+
+- facet:
+  Queries requesting analytical breakdowns or category counts WITHOUT focusing on a single species.
+  These are faceted analytical queries over all records.
+  Examples:
+  - “What kingdoms are found within 10km of Brisbane?”
+  - “Break down all records in Queensland by kingdom”
+  - “Top 5 species near Canberra”
+  - “Which months have the most bird observations in Queensland?”
+  Use get_occurrence_breakdown ONLY.
+
+- taxonomic_group:
+  Queries about higher-level taxa (family, genus, phylum, class) where the user is not asking for taxonomy info,
+  but for occurrence data filtered by a taxonomic group.
+  Examples:
+  - “Species in family Macropodidae recorded after 2021”
+  - “Find all Eucalyptus species”
+  - “Records of Cnidaria”
+  - “Occurrences of genus Eucalyptus in NSW”
+  These are NOT singlespecies and NOT taxonomy (classification).
+
 
 Tool priorities (USE ONLY THESE TWO):
 - must_call: Essential tools to answer the user's explicit request. ALL must_call tools will execute in sequence. If ANY must_call tool fails, the entire request fails.
@@ -131,12 +178,54 @@ Tool priorities (USE ONLY THESE TWO):
 - If user asks for multiple things, mark them ALL as must_call
 
 **Critical Query Pattern Rules (in priority order):**
-1. "Compare/breakdown/in EACH/by X" → must_call get_occurrence_breakdown ONLY (even if query says "sightings" or "records")
-2. "Count in [single location]" → must_call get_occurrence_taxa_count (single total)
-3. "Show me X occurrences" (without comparison) → must_call search_species_occurrences (actual records)
-4. "Tell me about X and show Y" → BOTH are must_call (user wants both)
 
-**IMPORTANT:** Comparison/breakdown queries use get_occurrence_breakdown ONLY. Do NOT combine with search_species_occurrences unless user explicitly asks like "show me the individual records AND compare them"
+1. FACET / BREAKDOWN QUERIES  
+   Triggered by: "compare", "breakdown", "in EACH", "by X", "top X", "most", "distribution across", 
+   OR any query that requests counts across multiple categories.
+   → must_call get_occurrence_breakdown ONLY  
+   (even if the query mentions “records”, “sightings”, or “occurrences”)
+           
+2. SINGLE TOTAL COUNT  
+   Triggered by: "count in [single location]", "how many", "total records", "number of", 
+   when the user wants ONE number.
+   → must_call get_occurrence_taxa_count
+
+3. OCCURRENCE RECORDS (actual sightings)  
+   Triggered by: "show me occurrences", "find sightings", "list observations", 
+   when the user wants INDIVIDUAL RECORDS.
+   → must_call search_species_occurrences
+
+4. MULTI-INTENT REQUESTS  
+   Triggered by: "tell me about X AND show Y", "give me occurrences AND distribution".
+   → ALL explicitly requested tools are must_call.
+
+5. DISTRIBUTION MAPS  
+   Triggered by: "where does it live", "distribution map", "habitat", "range".
+   → must_call get_species_distribution
+
+6. TAXONOMY (classification info)  
+   Triggered by: "what is the taxonomy", "classification of", "what family does X belong to".
+   → must_call lookup_species_info
+
+7. TAXONOMIC-GROUP OCCURRENCE QUERIES  
+   Triggered by: "species in family X", "records of phylum Y", "occurrences of genus Z".
+   These are NOT singlespecies and NOT taxonomy (classification).
+   → If user wants counts → get_occurrence_taxa_count  
+   → If user wants breakdown → get_occurrence_breakdown  
+   → If user wants records → search_species_occurrences
+
+8. FACET-ONLY QUERIES (no species mentioned)  
+   Triggered by: "what kingdoms are found near Brisbane", 
+   "break down all records by kingdom", 
+   "top 5 species near Canberra".
+   → must_call get_occurrence_breakdown ONLY
+
+9. CONSERVATION STATUS QUERIES  
+   Triggered by: "is X endangered", "is X vulnerable", "what is the conservation status".
+   ALA does NOT provide conservation status.
+   → query_type="conservation"  
+   → tools_planned = []  
+   → Agent will decline gracefully.
 
 **Key Distinction - Taxa Count vs Breakdown:**
 - "Count sightings in Queensland" → get_occurrence_taxa_count (one location = one number)
@@ -152,7 +241,10 @@ Tool priorities (USE ONLY THESE TWO):
 - "Break down wombat records by year" → get_occurrence_breakdown (must_call)
 - "Tell me about koalas" → lookup_species_info (must_call), get_species_images (optional)
 - "Show koala occurrences AND their distribution" → search_species_occurrences (must_call), get_species_distribution (must_call)
-
+- "What kingdoms are found within 10km of Brisbane?" → get_occurrence_breakdown (must_call)
+- "Species in family Macropodidae recorded after 2021" → search_species_occurrences OR get_occurrence_taxa_count depending on intent
+- "Is the koala endangered?" → conservation → tools_planned=[]
+             
 Respond ONLY with valid JSON matching the ResearchPlan Pydantic model.
 """),
             ("human", """
@@ -169,8 +261,8 @@ Create the execution plan.
                     model="gpt-4o-mini",
                     api_key=api_key,
                     base_url=base_url,
-                    timeout=30,  # 30 second timeout
-                    request_timeout=30  # Request-level timeout
+                    timeout=30,  
+                    request_timeout=30  
                 )
 
         chain = planning_prompt | llm | parser
@@ -182,7 +274,6 @@ Create the execution plan.
             })
             return ResearchPlan.parse_obj(plan_dict)
         except asyncio.CancelledError:
-            # Re-raise cancellation errors (don't catch them)
             logger.warning("Plan creation was cancelled")
             raise
         except Exception as e:
@@ -275,16 +366,16 @@ Create the execution plan.
 
     async def run_get_occurrence_taxa_count(self, context, params: OccurrenceTaxaCountParams):
         """Workflow for getting occurrence counts for specific taxa"""
-        
-        # Parse the GUIDs to understand what we're counting
+       
+        # Parse GUIDs
         guid_list = params.guids.replace('\n', params.separator).split(params.separator)
         guid_count = len([g for g in guid_list if g.strip()])
-        
+
         # Build description
         filter_description = ""
         if params.fq:
             filter_description = f" with filters: {', '.join(params.fq)}"
-        
+
         async with context.begin_process(f"Counting occurrences for {guid_count} taxa{filter_description}") as process:
             await process.log("Taxa count parameters", data=params.model_dump(exclude_defaults=True))
             await process.log(f"Analyzing {guid_count} taxa GUIDs")
@@ -295,21 +386,21 @@ Create the execution plan.
             try:
                 loop = asyncio.get_event_loop()
                 raw_response = await loop.run_in_executor(None, lambda: self.ala_logic.execute_request(api_url))
-                
+
                 await process.log("Successfully retrieved taxa count data.")
-                
-                # Parse the response to extract meaningful information
+
+                # Parse the response
                 total_occurrences = 0
                 taxa_with_records = 0
                 sample_results = []
-                
+
                 if isinstance(raw_response, dict):
                     for guid, count in raw_response.items():
                         if isinstance(count, (int, float)) and count > 0:
                             taxa_with_records += 1
                             total_occurrences += int(count)
                             sample_results.append(f"{guid}: {count:,} records")
-                
+
                 await process.create_artifact(
                     mimetype="application/json",
                     description=f"Taxa occurrence counts for {guid_count} taxa - {total_occurrences:,} total occurrences",
@@ -323,15 +414,13 @@ Create the execution plan.
                         "filter_applied": filter_description.strip()
                     }
                 )
-                
-                # Create user-friendly summary
+                # Build summary
                 if taxa_with_records > 0:
                     summary = f"Found occurrence counts for {taxa_with_records} out of {guid_count} taxa, totaling {total_occurrences:,} occurrence records"
                     if filter_description:
                         summary += filter_description
                     summary += "."
-                    
-                    # Add sample of results if we have them
+
                     if sample_results and len(sample_results) <= 3:
                         summary += f" Results: {', '.join(sample_results)}."
                     elif sample_results:
@@ -341,13 +430,13 @@ Create the execution plan.
                     if filter_description:
                         summary += filter_description
                     summary += "."
-                
+
                 await context.reply(summary)
 
             except ConnectionError as e:
                 await process.log("Error during API request", data={"error": str(e)})
                 await context.reply(f"I encountered an error while retrieving taxa occurrence counts: {e}")
-
+    
     async def run_species_image_search(self, context, params: SpeciesImageSearchParams):
         """
         Workflow for searching and fetching species images.
@@ -419,21 +508,20 @@ Create the execution plan.
     async def run_species_bie_search(self, context, params: SpeciesBieSearchParams):
         """Workflow for searching the Biodiversity Information Explorer (BIE) with field validation"""
 
-        # --- Step 1: Fetch or cache valid BIE fields ---
+        # Step 1: Fetch or cache valid BIE fields 
         try:
             valid_bie_fields = get_bie_fields(self.ala_logic.ala_api_base_url)
         except Exception as e:
             await context.reply(f"Error fetching BIE index fields: {e}")
-            valid_bie_fields = set()  # fallback: allow nothing
+            valid_bie_fields = set()  
 
-        # --- Step 2: Parse and filter params.fq ---
+        # Step 2: Parse and filter params.fq 
         dropped_filters = []
         filtered_fq = []
         if params.fq:
             # Support both string and list formats
             fq_items = params.fq if isinstance(params.fq, list) else [params.fq]
             for fq in fq_items:
-                # Assume format: field:value or field:"value"
                 field = fq.split(":", 1)[0].strip()
                 if field in valid_bie_fields:
                     filtered_fq.append(fq)
@@ -541,7 +629,6 @@ Create the execution plan.
                     timeout=30.0
                 )
                 
-                # Check if response is empty/null
                 if not raw_response:
                     await process.log(f"No distribution data available for {species_name}")
                     await context.reply(
@@ -594,7 +681,7 @@ Create the execution plan.
                     }
                 )
 
-                # Enhanced: Display distribution images and provide URLs
+                # Display distribution images and provide URLs
                 image_info = []  
                 displayed_images = 0
                 
@@ -647,7 +734,6 @@ Create the execution plan.
 
                 await context.reply(summary)
                 
-                # Return success case INSIDE try block
                 return {
                     "success": True,
                     "species_name": species_name,
@@ -672,9 +758,7 @@ Create the execution plan.
                 error_msg = str(e)
                 await process.log(f"API connection error: {error_msg}")
                 
-                # Check if this is a non-JSON response error
                 if "API response was not JSON" in error_msg:
-                    # This typically means empty response or no distribution data
                     await context.reply(
                         f"**Distribution data not available**\n\n"
                         f"The Atlas of Living Australia (ALA) does not have expert-compiled distribution maps for **{species_name}**.\n\n"
@@ -936,7 +1020,6 @@ class UnifiedALAReActAgent(IChatBioAgent):
             
             species_name = species_names[0] if isinstance(species_names, list) else species_names
             try:
-                # Extract all BIE search parameters from resolved_obj.params
                 bie_params = {
                     'q': species_name,
                     'pageSize': resolved_obj.params.get('pageSize'),

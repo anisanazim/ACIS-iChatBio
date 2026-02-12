@@ -444,27 +444,35 @@ class SpatialDistributionMapParams(BaseModel):
 
 class OccurrenceTaxaCountParams(BaseModel):
     """Pydantic model for GET /occurrences/taxaCount - Report occurrence counts for supplied list of taxa"""
-    
+
     # Required parameter
-    guids: str = Field(...,
-        description="taxonConceptIDs, newline separated (by default). Provide the GUIDs/LSIDs for the taxa you want counts for.",
+    guids: str = Field(
+        ...,
+        description=(
+            "taxonConceptIDs, newline separated (by default). Provide the GUIDs/LSIDs "
+            "for the taxa you want counts for."
+        ),
         examples=[
             "https://biodiversity.org.au/afd/taxa/7e6e134b-2bc7-43c4-b23a-6e3f420f57ad",
-            "https://biodiversity.org.au/afd/taxa/7e6e134b-2bc7-43c4-b23a-6e3f420f57ad\nhttps://biodiversity.org.au/afd/taxa/another-guid",
+            "https://biodiversity.org.au/afd/taxa/7e6e134b-2bc7-43c4-b23a-6e3f420f57ad\n"
+            "https://biodiversity.org.au/afd/taxa/another-guid",
             "urn:lsid:biodiversity.org.au:afd.taxon:31a9b8b8-4e8f-4343-a15f-2ed24e0bf1ae"
         ]
     )
-    
+
     # Optional parameters
-    fq: Optional[List[str]] = Field(None,
+    fq: Optional[List[str]] = Field(
+        None,
         description="Filter queries to apply when counting occurrences",
         examples=[["state:Queensland"], ["year:2020", "basis_of_record:HumanObservation"]]
     )
-    
-    separator: Optional[str] = Field("\n",
+
+    separator: Optional[str] = Field(
+        "\n",
         description="Separator character for the guids parameter",
         examples=["\n", ",", "|"]
     )
+
 
 def map_params_to_model(resolved_params: dict, model_class: Type[BaseModel]) -> Tuple[BaseModel, List[str]]:
     model_fields = model_class.model_fields
@@ -475,9 +483,7 @@ def map_params_to_model(resolved_params: dict, model_class: Type[BaseModel]) -> 
         if name in resolved_params:
             mapped[name] = resolved_params[name]
         elif field.is_required():
-            # Field is required and not provided
             missing_required.append(name)
-        # Optional fields with defaults will be handled by Pydantic automatically
     
     return model_class(**mapped), missing_required
 
@@ -487,7 +493,7 @@ class ALA:
             AsyncOpenAI(
                 api_key=self._get_config_value("OPENAI_API_KEY"), 
                 base_url="https://api.ai.it.ufl.edu",
-                timeout=30.0  # 30 second timeout
+                timeout=30.0 
             )
         )
         self.ala_api_base_url = self._get_config_value("ALA_API_URL", "https://api.ala.org.au")
@@ -645,7 +651,7 @@ class ALA:
         api_params = {}
         fq_filters = []
 
-        # Remove q if spatial search params are present ---
+        # Remove q if spatial search params are present Ex: "Show me the top families within 10 km of Brisbane"
         if (
             param_dict.get("lat") is not None
             and param_dict.get("lon") is not None
