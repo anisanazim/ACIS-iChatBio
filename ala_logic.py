@@ -520,16 +520,17 @@ class ALA:
                 value = (yaml.safe_load(f) or {}).get(key, default)
         return value if value is not None else default
  
-    def search_scientific_name(self, params: NameMatchingSearchParams) -> dict:
+    async def search_scientific_name(self, params: NameMatchingSearchParams) -> dict:
         """Search for a scientific name using name matching API."""
         query_params = {"q": params.q}
         query_string = urlencode(query_params)
         url = f"{self.ala_api_base_url}/namematching/api/search?{query_string}"
         return self.execute_request(url)
+     
 
-    def search_vernacular_name(self, params: VernacularNameSearchParams) -> dict:
+    async def search_vernacular_name(self, params: NameMatchingSearchParams) -> dict:
         """Search for a vernacular/common name using name matching API."""
-        query_params = {"vernacularName": params.vernacularName}
+        query_params = {"q": params.q}
         query_string = urlencode(query_params)
         url = f"{self.ala_api_base_url}/namematching/api/searchByVernacularName?{query_string}"
         return self.execute_request(url)

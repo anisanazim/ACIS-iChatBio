@@ -3,6 +3,7 @@ import json
 import logging
 from typing import Dict, Any, List, Optional, Literal
 import os
+from aiohttp import request
 import yaml
 from datetime import datetime
 from ala_logic import get_bie_fields, map_params_to_model
@@ -16,6 +17,10 @@ from parameter_extractor import extract_params_from_query, ALASearchResponse
 from langchain_core.output_parsers import JsonOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
+import redis.asyncio as aioredis
+import langchain
+langchain.debug = True
+
 
 logger = logging.getLogger(__name__)
 
@@ -57,15 +62,34 @@ class ResearchPlan(BaseModel):
     species_mentioned: List[str]
     tools_planned: List[ToolPlan]
 
+    def requires_lsid(self) -> bool:
+        """
+        Returns True if any planned tool requires LSID resolution.
+        """
+        lsid_tools = {
+            "get_species_distribution",
+            "get_species_images",
+            "search_species_occurrences"
+        }
+        return any(t.tool_name in lsid_tools for t in self.tools_planned)
 
 class ALAiChatBioAgent:
     """The iChatBio agent implementation for ALA"""
 
     def __init__(self):
         self.ala_logic = ALA()
-        self.resolver = ALAParameterResolver(self.ala_logic)
+        self.redis = aioredis.from_url(
+            "redis://localhost:6379",
+            decode_responses=True
+        )
+        self.resolver = ALAParameterResolver(self.ala_logic, self.redis)
             
-    async def create_research_plan(self, request: str, species_names: list[str]) -> ResearchPlan:
+    async def create_research_plan(self, request: str, species_names: list[str], extracted_params: dict) -> ResearchPlan:
+        logger.warning("🔥 create_research_plan CALLED FROM HERE")
+        logger.warning(f"[PLANNER] Received extracted_params: {extracted_params}")
+        logger.warning(f"[PLANNER] Received species: {species_names}")
+        logger.warning(f"[PLANNER] Received request: {request}")
+
         parser = JsonOutputParser(pydantic_object=ResearchPlan)
 
         planning_prompt = ChatPromptTemplate.from_messages([
@@ -180,10 +204,16 @@ Tool priorities (USE ONLY THESE TWO):
 **Critical Query Pattern Rules (in priority order):**
 
 1. FACET / BREAKDOWN QUERIES  
-   Triggered by: "compare", "breakdown", "in EACH", "by X", "top X", "most", "distribution across", 
-   OR any query that requests counts across multiple categories.
+   Triggered by: "compare", "breakdown", "in EACH", "by X", "top X", "most", 
+   "distribution across", OR any query that requests counts across multiple categories.
+
    → must_call get_occurrence_breakdown ONLY  
    (even if the query mentions “records”, “sightings”, or “occurrences”)
+
+   If the extracted parameters include ANY facets (facets=[...]),
+   ALWAYS classify the query as a facet/breakdown query and ALWAYS use 
+   get_occurrence_breakdown. Faceted analytical queries must NEVER route to 
+   search_species_occurrences OR get_species_distribution.
            
 2. SINGLE TOTAL COUNT  
    Triggered by: "count in [single location]", "how many", "total records", "number of", 
@@ -201,7 +231,12 @@ Tool priorities (USE ONLY THESE TWO):
 
 5. DISTRIBUTION MAPS  
    Triggered by: "where does it live", "distribution map", "habitat", "range".
-   → must_call get_species_distribution
+
+   IMPORTANT:
+   If extracted parameters include ANY facets (facets=[...]),
+   this is NOT a distribution-map query. It is a faceted analytical query.
+   → Do NOT classify as distribution.
+   → Route to Rule 1 instead (get_occurrence_breakdown).
 
 6. TAXONOMY (classification info)  
    Triggered by: "what is the taxonomy", "classification of", "what family does X belong to".
@@ -248,10 +283,11 @@ Tool priorities (USE ONLY THESE TWO):
 Respond ONLY with valid JSON matching the ResearchPlan Pydantic model.
 """),
             ("human", """
-Query: "{request}"
-Species mentioned: {species}
-Create the execution plan.
-""")
+        Query: "{request}"
+        Species mentioned: {species}
+        Extracted parameters: {extracted_params}
+        Create the execution plan.
+        """)
         ])
 
         api_key = get_config_value("OPENAI_API_KEY")
@@ -270,10 +306,13 @@ Create the execution plan.
         try:
             plan_dict = await chain.ainvoke({
                 "request": request,
-                "species": species_names if species_names else ["unknown"]
+                "species": species_names if species_names else ["unknown"],
+                "extracted_params": extracted_params
+
             })
             return ResearchPlan.parse_obj(plan_dict)
         except asyncio.CancelledError:
+            # Re-raise cancellation errors (don't catch them)
             logger.warning("Plan creation was cancelled")
             raise
         except Exception as e:
@@ -508,20 +547,21 @@ Create the execution plan.
     async def run_species_bie_search(self, context, params: SpeciesBieSearchParams):
         """Workflow for searching the Biodiversity Information Explorer (BIE) with field validation"""
 
-        # Step 1: Fetch or cache valid BIE fields 
+        # --- Step 1: Fetch or cache valid BIE fields ---
         try:
             valid_bie_fields = get_bie_fields(self.ala_logic.ala_api_base_url)
         except Exception as e:
             await context.reply(f"Error fetching BIE index fields: {e}")
-            valid_bie_fields = set()  
+            valid_bie_fields = set()  # fallback: allow nothing
 
-        # Step 2: Parse and filter params.fq 
+        # --- Step 2: Parse and filter params.fq ---
         dropped_filters = []
         filtered_fq = []
         if params.fq:
             # Support both string and list formats
             fq_items = params.fq if isinstance(params.fq, list) else [params.fq]
             for fq in fq_items:
+                # Assume format: field:value or field:"value"
                 field = fq.split(":", 1)[0].strip()
                 if field in valid_bie_fields:
                     filtered_fq.append(fq)
@@ -629,6 +669,7 @@ Create the execution plan.
                     timeout=30.0
                 )
                 
+                # Check if response is empty/null
                 if not raw_response:
                     await process.log(f"No distribution data available for {species_name}")
                     await context.reply(
@@ -681,7 +722,7 @@ Create the execution plan.
                     }
                 )
 
-                # Display distribution images and provide URLs
+                # Enhanced: Display distribution images and provide URLs
                 image_info = []  
                 displayed_images = 0
                 
@@ -734,6 +775,7 @@ Create the execution plan.
 
                 await context.reply(summary)
                 
+                # Return success case INSIDE try block
                 return {
                     "success": True,
                     "species_name": species_name,
@@ -758,7 +800,9 @@ Create the execution plan.
                 error_msg = str(e)
                 await process.log(f"API connection error: {error_msg}")
                 
+                # Check if this is a non-JSON response error
                 if "API response was not JSON" in error_msg:
+                    # This typically means empty response or no distribution data
                     await context.reply(
                         f"**Distribution data not available**\n\n"
                         f"The Atlas of Living Australia (ALA) does not have expert-compiled distribution maps for **{species_name}**.\n\n"
@@ -811,7 +855,6 @@ Create the execution plan.
                 )
                 return {"success": False, "error": str(e)}
 
-
     async def run_get_occurrence_facets(self, context, params: OccurrenceFacetsParams):
         """Workflow for getting occurrence facet information - data breakdowns and insights"""
         query_description = []
@@ -822,6 +865,7 @@ Create the execution plan.
         if params.facets:
             query_description.append(f"facets: {', '.join(params.facets)}")
         
+        # human‑friendly string built from the params to describe the search context in logs and replies
         search_context = " with " + ", ".join(query_description) if query_description else " for all occurrence data"
         
         async with context.begin_process(f"Getting occurrence data breakdowns{search_context}") as process:
@@ -894,17 +938,23 @@ Create the execution plan.
                 await process.log(f"Unexpected error: {e}")
                 await context.reply(f"An unexpected error occurred during facet analysis: {e}")
 
-    async def process_user_query(self, raw_query: str) -> ALASearchResponse:
-        # Step 1: Extract parameters
+    async def extract_parameters(self, raw_query: str) -> ALASearchResponse:
+        """
+        Extract parameters ONLY
+        """
         extracted = await self.ala_logic.extract_params(
-            user_query=raw_query, 
+            user_query=raw_query,
             response_model=ALASearchResponse
         )
-        # Step 2: Resolve unresolved parameters (using shared resolver)
-        resolved = await self.resolver.resolve_unresolved_params(extracted)  # ← Use self.resolver
-        
-        return resolved
+        return extracted
 
+    async def resolve_species(self, extracted: ALASearchResponse) -> ALASearchResponse:
+        """
+        Resolve species ONLY IF needed.
+        This is called AFTER planning.
+        """
+        resolved = await self.resolver.resolve_unresolved_params(extracted)
+        return resolved
 
 class UnifiedALAReActAgent(IChatBioAgent):
     """Unified ALA agent using Pure Plan-Based execution"""
@@ -924,45 +974,43 @@ class UnifiedALAReActAgent(IChatBioAgent):
             await context.reply("Error: OpenAI API key not found in environment or env.yaml file")
             return
 
-        # Step 1: Extract and resolve parameters once at the start
-        resolved_params = await self.workflow_agent.process_user_query(request)
-        
-        # Check if clarification is needed before proceeding
-        if resolved_params.clarification_needed:
-            clarification_message = f"I need more information to process your request:\n\n**Issue:** {resolved_params.clarification_reason}"
-            
-            if resolved_params.unresolved_params:
-                clarification_message += f"\n\n**Unresolved Parameters:** {', '.join(resolved_params.unresolved_params)}"
-            
-            await context.reply(clarification_message)
-            return
-        
-        # Extract species names from params dict (they can be in different fields)
+        # Step 1: Extract parameters 
+        extracted = await self.workflow_agent.extract_parameters(request)
+
         species_names = []
-        if 'scientific_name' in resolved_params.params:
-            sci_name = resolved_params.params['scientific_name']
-            species_names = [sci_name] if isinstance(sci_name, str) else sci_name
-        elif 'species_name' in resolved_params.params:
-            sp_name = resolved_params.params['species_name']
-            species_names = [sp_name] if isinstance(sp_name, str) else sp_name
-        elif 'q' in resolved_params.params:
-            # Use the query parameter as fallback
-            species_names = [resolved_params.params['q']]
+        if "q" in extracted.params:
+            species_names = [extracted.params["q"]]
 
-        # Step 2: Create the execution plan from user query and resolved species
-        plan = await self.workflow_agent.create_research_plan(request, species_names)
+        # Step 2: Create the execution plan 
+        plan = await self.workflow_agent.create_research_plan(
+            request=request,
+            species_names=species_names,
+            extracted_params=extracted.params
+        )
 
-        # Step 3: Begin execution process
+        logger.warning(f"[PLANNER OUTPUT RAW] {plan}")
+
+        # Step 3: Conditional LSID resolution
+        if plan.requires_lsid():
+            resolved = await self.workflow_agent.resolve_species(extracted)
+            if resolved.clarification_needed:
+                await context.reply(resolved.clarification_reason)
+                return
+        else:
+            resolved = extracted
+
+        # Step 4: Begin execution process
         async with context.begin_process("Executing ALA biodiversity search") as process:
             await process.log(f"Created execution plan with {len(plan.tools_planned)} tools")
             await process.log(f"Query type: {plan.query_type}")
-            await process.log(f"Species mentioned: {', '.join(plan.species_mentioned)}")
+            await process.log(f"Species mentioned: {plan.species_mentioned}")
+            
 
-        # Step 4: Define tool closures that execute workflows
-        async def _search_species_occurrences(resolved_obj):
+        # Step 5: Define tool closures that execute workflows
+        async def _search_species_occurrences(params: dict):
             """Search for species occurrence records"""
             try:
-                occurrence_params, missing = map_params_to_model(resolved_obj.params, OccurrenceSearchParams)
+                occurrence_params, missing = map_params_to_model(params, OccurrenceSearchParams)
                 if missing:
                     return {"success": False, "message": f"Please provide missing information: {', '.join(missing)}"}
                 
@@ -974,121 +1022,176 @@ class UnifiedALAReActAgent(IChatBioAgent):
                 logger.error(f"Error in _search_species_occurrences: {error_detail}")
                 return {"success": False, "message": f"Error executing search: {str(e)}"}
 
-        async def _get_species_images(resolved_obj):
-            """Retrieve species images"""
-            species_id = None
-            rows = None
-            start = None
-            qc = None
-            
-            # Try to get ID and other params from params dict or as direct attribute
-            if hasattr(resolved_obj, 'params'):
-                species_id = resolved_obj.params.get('id') or resolved_obj.params.get('lsid')
-                rows = resolved_obj.params.get('images_count')
-                start = resolved_obj.params.get('offset')
-                qc = resolved_obj.params.get('qc')
-            elif hasattr(resolved_obj, 'id'):
-                species_id = resolved_obj.id
-            
-            if not species_id:
-                return {"success": False, "message": "No valid species identifier (LSID) provided to fetch images."}
+        async def _get_species_images(params: dict):
+            """Retrieve species images using resolved parameters."""
             try:
-                # Create SpeciesImageSearchParams with all available parameters
+                # 1. Extract LSID / ID
+                species_id = (
+                    params.get("id") or
+                    params.get("lsid")
+                )
+
+                if not species_id:
+                    return {
+                        "success": False,
+                        "message": "No valid species identifier (LSID) provided to fetch images."
+                    }
+
+                # 2. Extract optional image parameters
+                rows = params.get("images_count")
+                start = params.get("offset")
+                qc = params.get("qc")
+
+                # 3. Build validated Pydantic model
                 image_params = SpeciesImageSearchParams(
                     id=species_id,
                     rows=rows,
                     start=start,
                     qc=qc
                 )
+
+                # 4. Execute workflow
                 await self.workflow_agent.run_species_image_search(context, image_params)
-                return {"success": True, "message": f"Species image search completed for identifier '{species_id}'."}
-            except Exception as e:
-                return {"success": False, "message": f"Error fetching images: {str(e)}"}
 
-        async def _lookup_species_info(resolved_obj):
-            """Look up comprehensive species information"""
-            # Try to get species name from params dict
-            species_names = None
-            if hasattr(resolved_obj, 'params'):
-                species_names = (resolved_obj.params.get('scientific_name') or 
-                               resolved_obj.params.get('species_name') or 
-                               resolved_obj.params.get('common_name') or
-                               resolved_obj.params.get('q'))
-            
-            if not species_names:
-                return {"success": False, "message": "No species name provided for lookup."}
-            
-            species_name = species_names[0] if isinstance(species_names, list) else species_names
-            try:
-                bie_params = {
-                    'q': species_name,
-                    'pageSize': resolved_obj.params.get('pageSize'),
-                    'start': resolved_obj.params.get('start'),
-                    'fq': resolved_obj.params.get('fq'),
-                    'facets': resolved_obj.params.get('facets'),
-                    'sort': resolved_obj.params.get('sort'),
-                    'dir': resolved_obj.params.get('dir')
+                return {
+                    "success": True,
+                    "message": f"Species image search completed for identifier '{species_id}'."
                 }
-                # Filter out None values
+
+            except Exception as e:
+                return {
+                    "success": False,
+                    "message": f"Error fetching images: {str(e)}"
+                }
+    
+        async def _lookup_species_info(params: dict):
+            """Look up comprehensive species information using resolved parameters."""
+            try:
+                # 1. Extract species name from resolved params
+                species_name = (
+                    params.get("scientific_name")
+                    or params.get("species_name")
+                    or params.get("common_name")
+                    or params.get("q")
+                )
+
+                if not species_name:
+                    return {
+                        "success": False,
+                        "message": "No species name provided for lookup."
+                    }
+
+                # If species_name is a list, take the first element
+                if isinstance(species_name, list):
+                    species_name = species_name[0]
+
+                # 2. Build BIE search parameters
+                bie_params = {
+                    "q": species_name,
+                    "pageSize": params.get("pageSize"),
+                    "start": params.get("start"),
+                    "fq": params.get("fq"),
+                    "facets": params.get("facets"),
+                    "sort": params.get("sort"),
+                    "dir": params.get("dir"),
+                }
+
+                # Remove None values
                 bie_params = {k: v for k, v in bie_params.items() if v is not None}
-                
-                params = SpeciesBieSearchParams(**bie_params)
-                await self.workflow_agent.run_species_bie_search(context, params)
-                return {"success": True, "message": f"Found species information for {species_name}"}
+
+                # 3. Validate using Pydantic model
+                validated = SpeciesBieSearchParams(**bie_params)
+
+                # 4. Run the workflow
+                await self.workflow_agent.run_species_bie_search(context, validated)
+
+                return {
+                    "success": True,
+                    "message": f"Found species information for {species_name}"
+                }
+
             except Exception as e:
-                return {"success": False, "message": f"Error looking up species info: {str(e)}"}
+                return {
+                    "success": False,
+                    "message": f"Error looking up species info: {str(e)}"
+                }
 
-        async def _get_species_distribution(resolved_obj):
-            """Get expert spatial distribution data"""
-            lsid = None
-            species_name = None
-            
-            # Access from params dict
-            if hasattr(resolved_obj, 'params'):
-                lsid = resolved_obj.params.get('lsid')
-                
-                # Try different possible name fields
-                sci_name = resolved_obj.params.get('scientific_name')
-                if sci_name:
-                    species_name = sci_name[0] if isinstance(sci_name, list) else sci_name
-                else:
-                    common = resolved_obj.params.get('common_name') or resolved_obj.params.get('q')
-                    if common:
-                        species_name = common[0] if isinstance(common, list) else common
-
-            if not lsid and not species_name:
-                return {"success": False, "message": "No valid species identifier (LSID or scientific/common name) provided for distribution lookup."}
-
+        async def _get_species_distribution(params: dict):
+            """Get expert spatial distribution data for a species."""
             try:
-                if lsid:
-                    result = await self.workflow_agent._fetch_distribution_data(context, lsid, species_name or "Unknown species")
-                else:
-                    return {"success": False, "message": "LSID missing; cannot fetch distribution data without resolved LSID."}
+                # 1. Extract LSID (required)
+                lsid = params.get("lsid") or params.get("id")
+                if not lsid:
+                    return {
+                        "success": False,
+                        "message": "Missing LSID. Distribution data requires a resolved LSID."
+                    }
+
+                # 2. Extract species name (optional, for logging)
+                species_name = (
+                    params.get("scientific_name")
+                    or params.get("common_name")
+                    or params.get("q")
+                    or "Unknown species"
+                )
+                if isinstance(species_name, list):
+                    species_name = species_name[0]
+
+                # 3. Call workflow
+                result = await self.workflow_agent._fetch_distribution_data(
+                    context,
+                    lsid,
+                    species_name
+                )
+
+                # 4. Handle workflow result
                 if result and result.get("success"):
-                    return {"success": True, "message": f"Retrieved distribution for {result['species_name']}: {result['record_count']} area(s)", "data": result}
-                else:
-                    error = result.get("error", "unknown") if result else "species not found"
-                    return {"success": False, "message": f"Could not retrieve distribution: {error}"}
-            except Exception as e:
-                return {"success": False, "message": f"Error processing distribution request: {str(e)}"}
+                    return {
+                        "success": True,
+                        "message": f"Retrieved distribution for {result['species_name']}: {result['record_count']} area(s)",
+                        "data": result
+                    }
 
-        async def _get_occurrence_breakdown(resolved_obj):
-            """Get analytical breakdowns from occurrence data"""
+                error = result.get("error", "unknown") if result else "species not found"
+                return {
+                    "success": False,
+                    "message": f"Could not retrieve distribution: {error}"
+                }
+
+            except Exception as e:
+                return {
+                    "success": False,
+                    "message": f"Error processing distribution request: {str(e)}"
+                }
+            
+        async def _get_occurrence_breakdown(params: dict):
+            """Get analytical breakdowns from occurrence data."""
             try:
-                params = OccurrenceFacetsParams(**resolved_obj.params)
-                await self.workflow_agent.run_get_occurrence_facets(context, params)
-                return {"success": True, "message": "Successfully processed occurrence breakdown request"}
-            except Exception as e:
-                return {"success": False, "message": f"Error processing breakdown: {str(e)}"}
+                # Validate + structure params
+                validated = OccurrenceFacetsParams(**params)
 
-        async def _get_occurrence_taxa_count(resolved_obj):
+                # Run workflow
+                await self.workflow_agent.run_get_occurrence_facets(context, validated)
+
+                return {
+                    "success": True,
+                    "message": "Successfully processed occurrence breakdown request"
+                }
+
+            except Exception as e:
+                return {
+                    "success": False,
+                    "message": f"Error processing breakdown: {str(e)}"
+                }
+    
+        async def _get_occurrence_taxa_count(params: dict):
             """Get total count of occurrence records for species"""
-            lsid = resolved_obj.params.get('lsid')
+            lsid = params.get('lsid')
             if not lsid:
                 return {"success": False, "message": "No LSID available for taxa count. Species resolution may have failed."}
             try:
                 # Extract filters if present
-                fq = resolved_obj.params.get('fq', [])
+                fq = params.get('fq', [])
                 # Build params for taxa count API
                 params = OccurrenceTaxaCountParams(
                     guids=lsid,
@@ -1105,7 +1208,7 @@ class UnifiedALAReActAgent(IChatBioAgent):
             await context.reply(summary)
             return {"success": True, "message": summary}
 
-        # Step 5: Map tool names to their implementations
+        # Step 6: Map tool names to their implementations
         tool_map = {
             "search_species_occurrences": _search_species_occurrences,
             "get_species_images": _get_species_images,
@@ -1116,7 +1219,7 @@ class UnifiedALAReActAgent(IChatBioAgent):
             "finish": _finish
         }
 
-        # Step 6: Execute planned tools in two phases
+        # Step 7: Execute planned tools in two phases
         executed_tools = []  # Track which tools have been executed
         
         async with context.begin_process("Executing planned tools") as process:
@@ -1147,7 +1250,7 @@ class UnifiedALAReActAgent(IChatBioAgent):
                     if tool_name == "finish":
                         result = await tool_fn("All required operations completed")
                     else:
-                        result = await tool_fn(resolved_params)
+                        result = await tool_fn(resolved.params)
                     
                     executed_tools.append(tool_name)
                     
@@ -1190,7 +1293,7 @@ class UnifiedALAReActAgent(IChatBioAgent):
                         if tool_name == "finish":
                             result = await tool_fn("Optional enhancements completed")
                         else:
-                            result = await tool_fn(resolved_params)
+                            result = await tool_fn(resolved.params)
                         
                         executed_tools.append(tool_name)
                         

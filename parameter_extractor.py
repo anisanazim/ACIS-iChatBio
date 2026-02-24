@@ -14,7 +14,10 @@ class ALASearchResponse(BaseModel):
     @classmethod
     def validate_params(cls, v, info):
         """Validate that temporal queries include temporal parameters"""
-        """Validate that temporal queries include temporal parameters"""
+        # temporal‑consistency checker
+        
+        # shows exactly what the extractor produced
+        print("DEBUG: Raw extracted params BEFORE validation:", v)
 
         # Get original query from context if available
         context = info.context or {}
@@ -67,6 +70,9 @@ CORE EXTRACTION RULES
 If the user does NOT mention a species, genus, or taxon name:
 - Do NOT include "q" in the params.
 - Do NOT set q="".
+If the query contains an AFD/ALA taxon URL (e.g., https://biodiversity.org.au/afd/taxa/...),
+- extract the FULL URL into the field "q".
+- Do NOT shorten it, do NOT extract only the UUID, do NOT modify it.
 
 2. TEMPORAL EXTRACTION
 
@@ -280,6 +286,10 @@ Query: "Top 5 species near Canberra"
 Example 9 — Relative Years:
 Query: "Find Common Myna observations in the last 5 years"
 → {"params": {"q": "Common Myna", "relative_years": 5}}
+
+Example 10 — LSID / AFD Taxon URL:
+Query: "Can you give me the distribution of https://biodiversity.org.au/afd/taxa/56d25dd8-4282-4cd6-9bc7-baaa0b8adfc4?"
+→ {"params": {"q": "https://biodiversity.org.au/afd/taxa/56d25dd8-4282-4cd6-9bc7-baaa0b8adfc4"}}
 
 ---------------------------------------
 END OF RULES
