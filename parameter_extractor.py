@@ -288,9 +288,8 @@ Query: "Find Common Myna observations in the last 5 years"
 → {"params": {"q": "Common Myna", "relative_years": 5}}
 
 Example 10 — LSID / AFD Taxon URL:
-Query: "Can you give me the distribution of https://biodiversity.org.au/afd/taxa/56d25dd8-4282-4cd6-9bc7-baaa0b8adfc4?"
+Query: "distribution of https://biodiversity.org.au/afd/taxa/56d25dd8-4282-4cd6-9bc7-baaa0b8adfc4"
 → {"params": {"q": "https://biodiversity.org.au/afd/taxa/56d25dd8-4282-4cd6-9bc7-baaa0b8adfc4"}}
-
 ---------------------------------------
 END OF RULES
 ---------------------------------------

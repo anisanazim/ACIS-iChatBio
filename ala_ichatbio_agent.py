@@ -966,6 +966,7 @@ class UnifiedALAReActAgent(IChatBioAgent):
     async def run(self, context: ResponseContext, request: str, entrypoint: str, params: UnifiedALAParams):
         """Execute the unified biodiversity search using plan-based coordinator"""
         
+        logger.warning(f"Query at 1: {request}")
         # Get API configuration
         api_key = get_config_value("OPENAI_API_KEY")
         base_url = get_config_value("OPENAI_BASE_URL", "https://api.ai.it.ufl.edu")
