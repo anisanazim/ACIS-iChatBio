@@ -1,0 +1,485 @@
+{
+  "test_suite_name": "Parameter Extractor Evaluation Suite",
+  "version": "1.0",
+  "description": "Comprehensive regression test suite for ALA parameter extraction",
+  "author": "ALA Agent Team",
+  "created": "2026-03-03",
+  "categories": [
+    "species_extraction",
+    "temporal_extraction",
+    "spatial_extraction",
+    "taxonomic_filters",
+    "basis_of_record",
+    "seasonal_filters",
+    "facets_and_breakdowns",
+    "edge_cases"
+  ],
+  "test_cases": [
+    {
+      "id": "extract_001",
+      "category": "species_extraction",
+      "query": "Tell me about koalas",
+      "description": "Basic common name extraction",
+      "expected_params": {
+        "q": "koala"
+      },
+      "should_succeed": true,
+      "validation_rules": {
+        "must_have": ["q"],
+        "must_not_have": ["year", "fq"],
+        "q_matches_exactly": "koala"
+      }
+    },
+    {
+      "id": "extract_002",
+      "category": "species_extraction",
+      "query": "Show me Eucalyptus regnans occurrences",
+      "description": "Scientific name extraction",
+      "expected_params": {
+        "q": "Eucalyptus regnans"
+      },
+      "should_succeed": true,
+      "validation_rules": {
+        "must_have": ["q"],
+        "q_matches_exactly": "Eucalyptus regnans"
+      }
+    },
+    {
+      "id": "extract_003",
+      "category": "species_extraction",
+      "query": "Find data for https://biodiversity.org.au/afd/taxa/12345abc",
+      "description": "AFD URL extraction (must preserve full URL)",
+      "expected_params": {
+        "q": "https://biodiversity.org.au/afd/taxa/12345abc"
+      },
+      "should_succeed": true,
+      "validation_rules": {
+        "must_have": ["q"],
+        "q_contains": "biodiversity.org.au/afd/taxa"
+      }
+    },
+    {
+      "id": "extract_004",
+      "category": "species_extraction",
+      "query": "How many species are there in total?",
+      "description": "No species mentioned - q should be absent",
+      "expected_params": {},
+      "should_succeed": true,
+      "validation_rules": {
+        "must_not_have": ["q"]
+      }
+    },
+    {
+      "id": "extract_005",
+      "category": "temporal_extraction",
+      "query": "Show me koala sightings after 2020",
+      "description": "Temporal 'after' extraction for occurrence search",
+      "expected_params": {
+        "q": "koala",
+        "year": "2021+"
+      },
+      "should_succeed": true,
+      "validation_rules": {
+        "must_have": ["q", "year"],
+        "year_matches": "2021+"
+      }
+    },
+    {
+      "id": "extract_006",
+      "category": "temporal_extraction",
+      "query": "Find wombat records before 2010",
+      "description": "Temporal 'before' extraction for occurrence search",
+      "expected_params": {
+        "q": "wombat",
+        "year": "<2010"
+      },
+      "should_succeed": true,
+      "validation_rules": {
+        "must_have": ["q", "year"],
+        "year_matches": "<2010"
+      }
+    },
+    {
+      "id": "extract_007",
+      "category": "temporal_extraction",
+      "query": "Show platypus occurrences between 2015 and 2020",
+      "description": "Temporal range 'between' extraction",
+      "expected_params": {
+        "q": "platypus",
+        "year": "2015,2020"
+      },
+      "should_succeed": true,
+      "validation_rules": {
+        "must_have": ["q", "year"],
+        "year_matches": "2015,2020"
+      }
+    },
+    {
+      "id": "extract_008",
+      "category": "temporal_extraction",
+      "query": "Find kangaroo sightings in 2021",
+      "description": "Exact year extraction",
+      "expected_params": {
+        "q": "kangaroo",
+        "year": "2021"
+      },
+      "should_succeed": true,
+      "validation_rules": {
+        "must_have": ["q", "year"],
+        "year_matches": "2021"
+      }
+    },
+    {
+      "id": "extract_009",
+      "category": "temporal_extraction",
+      "query": "How many emu taxa were recorded post 2015?",
+      "description": "Taxa count with 'post' temporal (must convert to year filter in fq)",
+      "expected_params": {
+        "q": "emu",
+        "year":"2016"
+      },
+      "should_succeed": true,
+      "validation_rules": {
+        "must_have": ["q", "year"],
+        "year_equals": 2016
+      }
+    },
+    {
+      "id": "extract_010",
+      "category": "temporal_extraction",
+      "query": "Show me echidna records from the last 5 years",
+      "description": "Relative temporal expression",
+      "expected_params": {
+        "q": "echidna",
+        "relative_years": 5
+      },
+      "should_succeed": true,
+      "validation_rules": {
+        "must_have": ["q", "relative_years"],
+        "relative_years_equals": 5
+      }
+    },
+    {
+      "id": "extract_011",
+      "category": "spatial_extraction",
+      "query": "Find koala occurrences in Queensland",
+      "description": "State filter extraction",
+      "expected_params": {
+        "q": "koala",
+        "state": "Queensland"
+      },
+      "should_succeed": true,
+      "validation_rules": {
+        "must_have": ["q", "state"],
+        "state_equals": "Queensland"
+      }
+    },
+    {
+      "id": "extract_012",
+      "category": "spatial_extraction",
+      "query": "Show me wombat sightings in QLD",
+      "description": "State abbreviation normalization (QLD -> Queensland)",
+      "expected_params": {
+        "q": "wombat",
+        "state": "Queensland"
+      },
+      "should_succeed": true,
+      "validation_rules": {
+        "must_have": ["q", "state"],
+        "state_equals": "Queensland"
+      }
+    },
+    {
+      "id": "extract_013",
+      "category": "spatial_extraction",
+      "query": "Find birds within 50km of Brisbane",
+      "description": "City to lat/lon conversion and radius",
+      "expected_params": {
+        "q": "birds",
+        "lat": -27.47,
+        "lon": 153.03,
+        "radius": 50
+      },
+      "should_succeed": true,
+      "validation_rules": {
+        "must_have": ["q", "lat", "lon", "radius"],
+        "radius_equals": 50
+      }
+    },
+    {
+      "id": "extract_014",
+      "category": "taxonomic_filters",
+      "query": "Show me all species in the family Macropodidae",
+      "description": "Family-level taxonomic filter",
+      "expected_params": {
+        "q": "Macropodidae",
+        "facets": ["species"]
+      },
+      "should_succeed": true,
+      "validation_rules": {
+        "must_have": ["q", "facets"],
+        "facets_contains": "species"
+      }
+    },
+    {
+      "id": "extract_015",
+      "category": "taxonomic_filters",
+      "query": "Find all Acacia genus occurrences",
+      "description": "Genus-level taxonomic filter",
+      "expected_params": {
+        "q": "Acacia",
+        "genus": "Acacia"
+      },
+      "should_succeed": true,
+      "validation_rules": {
+        "must_have": ["q", "genus"],
+        "genus_equals": "Acacia"
+      }
+    },
+    {
+      "id": "extract_016",
+      "category": "basis_of_record",
+      "query": "Show me preserved specimens of koalas",
+      "description": "Basis of record - PreservedSpecimen",
+      "expected_params": {
+        "q": "koalas",
+        "basis_of_record": "PreservedSpecimen"
+      },
+      "should_succeed": true,
+      "validation_rules": {
+        "must_have": ["q", "basis_of_record"],
+        "basis_of_record_equals": "PreservedSpecimen"
+      }
+    },
+    {
+      "id": "extract_017",
+      "category": "basis_of_record",
+      "query": "Find human observations of platypus",
+      "description": "Basis of record - HumanObservation",
+      "expected_params": {
+        "q": "platypus",
+        "basis_of_record": "HumanObservation"
+      },
+      "should_succeed": true,
+      "validation_rules": {
+        "must_have": ["q", "basis_of_record"],
+        "basis_of_record_equals": "HumanObservation"
+      }
+    },
+    {
+      "id": "extract_018",
+      "category": "seasonal_filters",
+      "query": "Show me kangaroo sightings in summer",
+      "description": "Season to month filter (summer = 12 OR 1 OR 2)",
+      "expected_params": {
+        "q": "kangaroo",
+        "fq": ["month:(12 OR 1 OR 2)"]
+      },
+      "should_succeed": true,
+      "validation_rules": {
+        "must_have": ["q", "fq"],
+        "fq_contains": "month:"
+      }
+    },
+    {
+      "id": "extract_019",
+      "category": "seasonal_filters",
+      "query": "Find wombat occurrences in winter",
+      "description": "Season to month filter (winter = 6 OR 7 OR 8)",
+      "expected_params": {
+        "q": "wombat",
+        "fq": ["month:(6 OR 7 OR 8)"]
+      },
+      "should_succeed": true,
+      "validation_rules": {
+        "must_have": ["q", "fq"],
+        "fq_contains": "month:"
+      }
+    },
+    {
+      "id": "extract_020",
+      "category": "seasonal_filters",
+      "query": "Show koala records in January",
+      "description": "Specific month extraction",
+      "expected_params": {
+        "q": "koala",
+        "fq": ["month:1"]
+      },
+      "should_succeed": true,
+      "validation_rules": {
+        "must_have": ["q", "fq"],
+        "fq_contains": "month:1"
+      }
+    },
+    {
+      "id": "extract_021",
+      "category": "facets_and_breakdowns",
+      "query": "Break down kangaroo sightings by state",
+      "description": "Facet extraction for state breakdown",
+      "expected_params": {
+        "q": "kangaroo",
+        "facets": ["state"]
+      },
+      "should_succeed": true,
+      "validation_rules": {
+        "must_have": ["q", "facets"],
+        "facets_contains": "state"
+      }
+    },
+    {
+      "id": "extract_022",
+      "category": "facets_and_breakdowns",
+      "query": "Show monthly distribution of koala sightings",
+      "description": "Facet extraction for month breakdown",
+      "expected_params": {
+        "q": "koala",
+        "facets": ["month"]
+      },
+      "should_succeed": true,
+      "validation_rules": {
+        "must_have": ["q", "facets"],
+        "facets_contains": "month"
+      }
+    },
+    {
+      "id": "extract_023",
+      "category": "facets_and_breakdowns",
+      "query": "Which families are most common in Queensland?",
+      "description": "Facet for taxonomic rank (families -> family)",
+      "expected_params": {
+        "state": "Queensland",
+        "facets": ["family"],
+        "fsort": "count"
+      },
+      "should_succeed": true,
+      "validation_rules": {
+        "must_have": ["state", "facets"],
+        "facets_contains": "family",
+        "state_equals": "Queensland"
+      }
+    },
+    {
+      "id": "extract_024",
+      "category": "facets_and_breakdowns",
+      "query": "Compare koala occurrences in QLD, NSW, and Victoria",
+      "description": "Multi-state comparison - use facets, not filters",
+      "expected_params": {
+        "q": "koala",
+        "facets": ["state"]
+      },
+      "should_succeed": true,
+      "validation_rules": {
+        "must_have": ["q", "facets"],
+        "facets_contains": "state",
+        "must_not_have_in_fq": "state:"
+      }
+    },
+    {
+      "id": "extract_025",
+      "category": "edge_cases",
+      "query": "Show me koalas with images in Queensland after 2020",
+      "description": "Complex multi-parameter query",
+      "expected_params": {
+        "q": "koala",
+        "state": "Queensland",
+        "has_images": true,
+        "year": "2021+"
+      },
+      "should_succeed": true,
+      "validation_rules": {
+        "must_have": ["q", "year", "state", "has_images"],
+        "year_matches": "2021+",
+        "state_equals": "Queensland"
+      }
+    },
+    {
+      "id": "extract_026",
+      "category": "edge_cases",
+      "query": "Find preserved specimens of Eucalyptus regnans in Victoria from 1900 to 1950",
+      "description": "Complex historical query with multiple filters",
+      "expected_params": {
+        "q": "Eucalyptus regnans",
+        "state": "Victoria",
+        "basis_of_record": "PreservedSpecimen",
+        "year": "1900,1950"
+      },
+      "should_succeed": true,
+      "validation_rules": {
+        "must_have": ["q", "year", "state", "basis_of_record"],
+        "year_matches": "1900,1950",
+        "state_equals": "Victoria",
+        "basis_of_record_equals": "PreservedSpecimen"
+      }
+    },
+    {
+      "id": "extract_027",
+      "category": "edge_cases",
+      "query": "Compare summer and winter bird sightings",
+      "description": "Seasonal comparison - should use month faceting",
+      "expected_params": {
+         "q": "bird",
+        "facets": [
+          "month"
+        ],
+        "fsort": "count"
+      },
+      "should_succeed": true,
+      "validation_rules": {
+        "must_have": ["q", "facets"],
+        "facets_contains": "month"
+      }
+    },
+    {
+      "id": "extract_028",
+      "category": "edge_cases",
+      "query": "How many different genera of Eucalyptus are there?",
+      "description": "Taxa count with taxonomic rank plural",
+      "expected_params": {
+        "q": "Eucalyptus",
+        "facets": ["genus"]
+      },
+      "should_succeed": true,
+      "validation_rules": {
+        "must_have": ["q", "facets"],
+        "facets_contains": "genus"
+      }
+    },
+    {
+      "id": "extract_029",
+      "category": "temporal_extraction",
+      "query": "Show me wombat occurrences since 2018",
+      "description": "Temporal 'since' extraction (equivalent to 'after')",
+      "expected_params": {
+        "q": "wombat",
+        "year": "2018+"
+      },
+      "should_succeed": true,
+      "validation_rules": {
+        "must_have": ["q", "year"],
+        "year_matches": "2018+"
+      }
+    },
+    {
+      "id": "extract_030",
+      "category": "edge_cases",
+      "query": "Find all machine observations of birds within 25km of Sydney in spring",
+      "description": "Complex query with spatial, seasonal, and basis filters",
+      "expected_params": {
+        "q": "birds",
+        "basis_of_record": "MachineObservation",
+        "lat": -33.87,
+        "lon": 151.21,
+        "radius": 25,
+        "fq": [
+          "month:(9 OR 10 OR 11)"
+        ]
+      },
+      "should_succeed": true,
+      "validation_rules": {
+        "must_have": ["q", "lat", "lon", "radius", "fq"],
+        "radius_equals": 25,
+        "fq_contains": "month:(9 OR 10 OR 11)"
+      }
+    }
+  ]
+}
